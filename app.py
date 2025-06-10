@@ -33,7 +33,7 @@ except ImportError:
 # --------------------------------------------
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.urandom(24)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///lawbot.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///vietlawbot.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # giới hạn 10MB
 app.config['UPLOAD_EXTENSIONS'] = ['.jpg', '.jpeg', '.png', '.pdf']

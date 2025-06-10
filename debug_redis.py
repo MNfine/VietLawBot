@@ -1,3 +1,13 @@
+import os
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+    token = os.getenv("HUGGINGFACE_TOKEN")
+    if token:
+        os.environ["HUGGINGFACE_HUB_TOKEN"] = token
+except ImportError:
+    pass
+
 import redis
 import numpy as np
 from sentence_transformers import SentenceTransformer
@@ -11,7 +21,7 @@ INDEX_NAME = "idx:law"
 r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0)
 
 # Khởi tạo SentenceTransformer
-sbert = SentenceTransformer("all-MiniLM-L6-v2")
+sbert = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
 
 def get_embedding(text: str) -> bytes:
     emb = sbert.encode(text, convert_to_numpy=True, normalize_embeddings=True)

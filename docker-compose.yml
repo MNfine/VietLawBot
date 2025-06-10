@@ -9,11 +9,11 @@ services:
     volumes:
       - redis_data:/data
 
-  lawbot:
+  vietlawbot:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: llama2_lawbot
+    container_name: vietlawbot
     env_file:
       - .env
     ports:
@@ -23,8 +23,6 @@ services:
     volumes:
       - ./uploads:/app/uploads
       - ./plain_texts:/app/plain_texts
-      - ./qlora_lawbot_output:/app/qlora_lawbot_output
-      - ./offload_dir:/app/offload_dir
 
 volumes:
   redis_data:

@@ -1,6 +1,16 @@
 # chunk_and_index.py
 
 import os
+# Tự động load token từ .env nếu có
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+    token = os.getenv("HUGGINGFACE_TOKEN")
+    if token:
+        os.environ["HUGGINGFACE_HUB_TOKEN"] = token
+except ImportError:
+    pass
+
 import json
 import redis
 import numpy as np
@@ -21,7 +31,7 @@ INDEX_NAME = "idx:law"
 r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0)
 
 # Khởi tạo SentenceTransformer để tạo embedding (dim=384)
-sbert = SentenceTransformer("all-MiniLM-L6-v2")
+sbert = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
 
 
 # --------------------------------------------
