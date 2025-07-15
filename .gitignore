@@ -11,8 +11,9 @@ __pycache__/
 *.db
 *.sqlite3
 
-# Law documents 
+# Law documents and processed text files
 law documents/
+plain_texts/
 
 # Output
 qlora_lawbot_output/
