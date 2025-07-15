@@ -239,7 +239,7 @@ def answer_with_context(query: str) -> str:
     disclaimer = (
         "\n\nLưu ý: Nếu bạn hoặc ai đó bạn biết đang gặp vấn đề liên quan đến pháp luật, "
         "hãy tìm kiếm sự tư vấn của luật sư để được hỗ trợ pháp lý tốt nhất. "
-        "* Thông tin này không thay thế cho tư vấn pháp lý chuyên nghiệp. "
+        "Thông tin này không thay thế cho tư vấn pháp lý chuyên nghiệp. "
         "Bạn nên tham khảo ý kiến của luật sư hoặc chuyên gia pháp lý để được tư vấn cụ thể trong từng trường hợp."
     )
     

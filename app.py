@@ -86,17 +86,28 @@ def datetimeformat_filter(value):
 # --------------------------------------------
 @app.route('/', methods=['GET', 'POST'])
 def index():
+    # Nếu chưa đăng nhập và đã hỏi đủ số câu -> yêu cầu đăng nhập
+    questions_asked = session.get('questions_asked', 0)
+    if not current_user.is_authenticated and questions_asked >= User.MAX_ANONYMOUS_QUESTIONS:
+        next_url = url_for('index')
+        if request.method == 'POST':
+            next_url = url_for('index', query=request.form.get('query', ''))
+        flash(f'Bạn đã hỏi {User.MAX_ANONYMOUS_QUESTIONS} câu hỏi. Vui lòng đăng nhập hoặc đăng ký tài khoản để tiếp tục.')
+        return redirect(url_for('login', next=next_url))
+    
+    # Tăng số câu hỏi cho người dùng chưa đăng nhập
     if not current_user.is_authenticated:
-        if session.get('questions_asked', 0) >= 10:
-            flash('Vui lòng đăng ký tài khoản để tiếp tục sử dụng')
-            return redirect(url_for('register'))
-        session['questions_asked'] = session.get('questions_asked', 0) + 1
+        session['questions_asked'] = questions_asked + 1
     elif not current_user.email_verified:
         flash('Vui lòng xác thực email để sử dụng đầy đủ tính năng')
         return redirect(url_for('verify_email', user_id=current_user.id))
-    else:
-        current_user.questions_asked += 1
-        db.session.commit()
+    elif not current_user.can_ask_question():
+        flash(f'Bạn đã đạt giới hạn {User.MAX_DAILY_QUESTIONS} câu hỏi trong ngày. Vui lòng quay lại vào ngày mai')
+        return render_template("index.html",
+                          error=None,
+                          query=None,
+                          extracted_text=None,
+                          answer=None)
 
     error = None
     query = None
@@ -106,7 +117,7 @@ def index():
     if request.method == 'POST':
         # Lấy câu hỏi text
         query = request.form.get('query', '').strip()
-
+        
         # Kiểm tra file upload
         uploaded_file = request.files.get('image')
         if uploaded_file and uploaded_file.filename != '':
@@ -186,6 +197,8 @@ def index():
                                   answer=None)
         try:
             answer = answer_with_context(query)
+            if current_user.is_authenticated:
+                current_user.increment_question_count()
         except Exception as e:
             answer = f"Đã có lỗi khi xử lý: {e}"
 
@@ -296,6 +309,8 @@ def verify_email(user_id):
 # Login route
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    next_url = request.args.get('next') or url_for('index')
+    
     if request.method == 'POST':
         email = request.form.get('email') 
         password = request.form.get('password')
@@ -307,10 +322,12 @@ def login():
                 return redirect(url_for('verify_email', user_id=user.id))
                 
             login_user(user)
-            return redirect(url_for('index'))
+            # Reset số câu hỏi trong session khi đăng nhập thành công
+            session.pop('questions_asked', None)
+            return redirect(next_url)
             
         flash('Email hoặc mật khẩu không đúng')
-    return render_template("login.html")
+    return render_template("login.html", next_url=next_url)
 
 # Google login route
 @app.route("/login/google")
