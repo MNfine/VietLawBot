@@ -135,11 +135,10 @@ def parse_mcq(query: str):
 def answer_with_context(query: str) -> str:
     stem, options = parse_mcq(query)
     chunks = retrieve_similar_chunks(query, top_k=TOP_K)
-    if not chunks or chunks[0]["score"] < SIMILARITY_THRESHOLD:
-        return "[Gemini] " + gemini_answer(query)
     selected = [c for c in chunks if c["score"] >= SIMILARITY_THRESHOLD]
     if not selected:
         return "[Gemini] " + gemini_answer(query)
+
     context = ""
     for idx, c in enumerate(selected):
         meta = c["meta"]

@@ -22,8 +22,8 @@ from typing import List
 # --------------------------------------------
 
 # Nếu Docker Desktop của bạn map port 6380:6379, thì host port phải là 6380
-REDIS_HOST = "localhost"
-REDIS_PORT = 6380         # <--- Cổng 6380 cho khớp với Docker Desktop
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", 6380))
 INDEX_NAME = "idx:law"
 
 # Khởi tạo kết nối tới Redis Stack
