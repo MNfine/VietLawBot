@@ -127,17 +127,18 @@ def answer_with_context(query: str) -> str:
     is_civil_law = "dân sự" in query_lower
     is_criminal_law = "hình sự" in query_lower
     
-    # Thông tin tóm tắt về chunks tìm được (chỉ hiện khi debug)
-    if chunks and SHOW_DEBUG:
-        print(f"\nTìm thấy {len(chunks)} chunk phù hợp (score > {SIMILARITY_THRESHOLD}):")
-        for i, c in enumerate(chunks, 1):
-            meta = c["meta"]
-            source = meta.get("source", "Unknown")
-            dieu = meta.get("dieu", "")
-            score = c.get("score", 0.0)
-            print(f"[{i}] Score: {score:.3f} | {source}{' Điều ' + dieu if dieu else ''}")
-        print()
+    # Kiểm tra xem có chunk nào vượt ngưỡng similarity không
+    has_relevant_chunks = any(c["score"] >= SIMILARITY_THRESHOLD for c in chunks)
     
+    if not has_relevant_chunks:
+        # Fallback sang Gemini ngay nếu không có chunk nào đủ liên quan
+        general_prompt = (
+            "Bạn là luật sư tư vấn pháp luật Việt Nam. Hãy trả lời câu hỏi sau một cách chính xác "
+            "và dễ hiểu. Nếu không chắc chắn, hãy khuyến nghị người dùng tham khảo ý kiến luật sư.\n\n"
+            f"Câu hỏi: {query}\n\n"
+        )
+        return "[Gemini tổng quát] " + gemini_answer(general_prompt)
+
     # Lọc chunks theo score và ưu tiên theo loại luật
     selected = []
     for c in chunks:
@@ -157,14 +158,8 @@ def answer_with_context(query: str) -> str:
         # Nếu query không nêu rõ loại luật -> lấy tất cả chunks có score cao
         elif not is_civil_law and not is_criminal_law:
             selected.append(c)
-            
-    if SHOW_DEBUG:
-        print(f"Đã chọn {len(selected)} chunks cho quá trình RAG.\n")
-    
-    if not selected:
-        return "[Gemini tổng quát] " + gemini_answer(query)
 
-    # Tạo context từ các chunk
+    # Tạo context từ các chunk được chọn
     context = ""
     for idx, c in enumerate(selected):
         meta = c["meta"]
@@ -178,7 +173,6 @@ def answer_with_context(query: str) -> str:
             header += f", Khoản {khoan}"
         header += "]\n"
         
-        # Làm sạch text nhưng giữ nguyên cấu trúc
         chunk_text = c["text"]
         chunk_text = chunk_text.replace("\n", " ").strip()
         chunk_text = re.sub(r"\s+", " ", chunk_text)
@@ -193,41 +187,55 @@ def answer_with_context(query: str) -> str:
         prompt = (
             "Bạn là luật sư chuyên về pháp luật Việt Nam với nhiều năm kinh nghiệm. "
             "Hãy trả lời câu hỏi dựa trên các đoạn văn bản luật được cung cấp dưới đây. "
-            "Trả lời chính xác, ngắn gọn, dễ hiểu và chỉ dựa vào các điều luật liên quan.\n\n"
+            "Nếu thông tin không đầy đủ, hãy trả lời dựa trên kiến thức pháp luật tổng quát.\n\n"
             f"Câu hỏi (MCQ): {stem}\n"
             "Phương án:\n" + opts_text + "\n"
             f"Văn bản luật liên quan:\n{context}\n"
-            "Hãy chọn 1 trong 4 phương án (A/B/C/D) dựa vao văn bản luật ở trên. "
-            "Nếu không đủ dữ liệu để trả lời, hãy nói rõ là không đủ dữ liệu. "
-            "Nếu có thể, giải thích ngắn gọn."
+            "Hãy chọn 1 trong 4 phương án (A/B/C/D). "
+            "Nếu có thể, giải thích ngắn gọn lý do chọn. "
+            "Nếu không tìm thấy thông tin phù hợp trong văn bản luật, "
+            "hãy trả lời dựa trên hiểu biết chung về pháp luật Việt Nam."
         )
     else:
         prompt = (
             "Bạn là luật sư chuyên về pháp luật Việt Nam với nhiều năm kinh nghiệm. "
             "Hãy trả lời câu hỏi dựa trên các đoạn văn bản luật được cung cấp dưới đây. "
-            "Trả lời chính xác, ngắn gọn, dễ hiểu và chỉ dựa vào các điều luật liên quan.\n\n"
+            "Nếu thông tin không đầy đủ, hãy trả lời dựa trên kiến thức pháp luật tổng quát.\n\n"
             f"Câu hỏi: {query}\n\n"
             f"Văn bản luật liên quan:\n{context}\n"
-            "Trả lời ngắn gọn, rõ ràng, trích dẫn chính xác Điều, Khoản nếu có. "
-            "Nếu không đủ dữ liệu để trả lời, hãy nói rõ là không đủ dữ liệu."
+            "Trả lời ngắn gọn, rõ ràng, trích dẫn điều luật nếu có. "
+            "Nếu không tìm thấy thông tin phù hợp trong văn bản luật, "
+            "hãy trả lời dựa trên hiểu biết chung về pháp luật Việt Nam."
         )
 
     # Gọi Gemini và format câu trả lời
-    rag_answer = gemini_answer(prompt)
-    rag_answer = format_numbered_list(rag_answer)
+    answer = gemini_answer(prompt)
+    answer = format_numbered_list(answer)
     
-    # Kiểm tra xem có dùng được thông tin từ văn bản luật không
-    lower_ans = rag_answer.lower()
-    # Các từ khóa chỉ ra rằng không có thông tin phù hợp trong văn bản luật
-    keywords_no_info = [
+    # Kiểm tra xem câu trả lời có sử dụng thông tin từ văn bản luật không
+    lower_ans = answer.lower()
+    keywords_no_direct_info = [
         "xin lỗi, không đủ dữ liệu",
         "xin lỗi, không thể trả lời",
         "rất tiếc, không có đủ thông tin",
-        "không tìm thấy thông tin liên quan",
-        "không có thông tin phù hợp"
+        "không tìm thấy thông tin",
+        "không có thông tin",
+        "không tìm thấy quy định",
+        "không có quy định"
     ]
     
-    # Thêm disclaimer vào cuối câu trả lời
+    uses_legal_context = (
+        "điều" in lower_ans or
+        "khoản" in lower_ans or
+        "luật" in lower_ans or
+        "quy định" in lower_ans or
+        "theo" in lower_ans
+    )
+    
+    # Quyết định prefix dựa trên việc có sử dụng thông tin pháp luật không
+    prefix = "[LawBot (RAG)] " if uses_legal_context else "[Gemini tổng quát] "
+    
+    # Thêm disclaimer
     disclaimer = (
         "\n\nLưu ý: Nếu bạn hoặc ai đó bạn biết đang gặp vấn đề liên quan đến pháp luật, "
         "hãy tìm kiếm sự tư vấn của luật sư để được hỗ trợ pháp lý tốt nhất. "
@@ -235,14 +243,7 @@ def answer_with_context(query: str) -> str:
         "Bạn nên tham khảo ý kiến của luật sư hoặc chuyên gia pháp lý để được tư vấn cụ thể trong từng trường hợp."
     )
     
-    if not context or any(kw in lower_ans for kw in keywords_no_info):
-        print("=> Chuyển sang Gemini tổng quát do không có thông tin phù hợp")
-        final_answer = "[Gemini tổng quát] " + gemini_answer(query)
-    else:
-        print("=> Sử dụng LawBot RAG với context từ văn bản luật")
-        final_answer = "[LawBot (RAG)] " + rag_answer
-    
-    return final_answer + disclaimer
+    return prefix + answer + disclaimer
 
 # --------------------------------------------
 # PHẦN TEST KHI CHẠY TRỰC TIẾP
