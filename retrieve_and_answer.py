@@ -2,118 +2,46 @@
 
 import os
 import json
-import redis
-import numpy as np
 import re
-from sentence_transformers import SentenceTransformer
-import google.generativeai as genai
+from typing import Tuple, Optional, Dict, Any
 
+# Load các biến môi trường
 try:
     from dotenv import load_dotenv
     load_dotenv()
-    token = os.getenv("HUGGINGFACE_TOKEN")
-    if token:
-        os.environ["HUGGINGFACE_HUB_TOKEN"] = token
 except ImportError:
     pass
 
-# --------------------------------------------
-# 1. CẤU HÌNH CHUNG
-# --------------------------------------------
-# Redis Stack đang chạy Docker Desktop trên port 6380 
-REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-REDIS_PORT = int(os.getenv("REDIS_PORT", 6380))
-INDEX_NAME = "idx:law"
+import google.generativeai as genai
+from chunk_and_index import retrieve_similar_chunks
 
-# Số chunk lấy về (top_k) và ngưỡng similarity
-TOP_K = 3  # Giảm số chunk lấy về để prompt ngắn hơn
-SIMILARITY_THRESHOLD = 0.6
-
+# --------------------------------------------
+# CẤU HÌNH CHUNG
+# --------------------------------------------
 GEMINI_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 genai.configure(api_key=GEMINI_API_KEY)
 
-# --------------------------------------------
-# 2. KẾT NỐI REDIS và SBERT embedder (dim=384)
-# --------------------------------------------
-r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0)
-sbert = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2") # Model phù hợp cho tiếng Việt
-
-
-def get_query_embedding(text: str) -> bytes:
-    """
-    Tạo embedding float32 (dim=384) cho input text,
-    rồi convert sang bytes để Redis VECTOR hiểu.
-    """
-    emb: np.ndarray = sbert.encode(text, convert_to_numpy=True, normalize_embeddings=True)
-    arr = np.array(emb, dtype=np.float32)  # float32 array, shape=(384,)
-    return arr.tobytes()
-
-
-# --------------------------------------------
-# 3. HÀM RETRIEVE TOP-K CHUNKS TỪ REDIS
-# --------------------------------------------
-def retrieve_similar_chunks(query: str, top_k: int = TOP_K) -> list:
-    """
-    Tính embedding của query, tìm top_k chunk gần nhất.
-    Trả về list các dict: [{"text": <chunk_text>,
-                             "meta": <meta_dict>,
-                             "score": <float>}, ...]
-    Nếu không tìm thấy hoặc index rỗng, trả về list rỗng.
-    """
-    q_emb = get_query_embedding(query)
-
-    try:
-        raw = r.execute_command(
-            "FT.SEARCH", INDEX_NAME,
-            f"*=>[KNN {top_k} @vector $vec AS vector_score]",
-            "PARAMS", 2, "vec", q_emb,
-            "RETURN", 3, "text", "meta", "vector_score",
-            "DIALECT", 2
-        )
-    except Exception as e:
-        print(f"Lỗi khi FT.SEARCH: {e}")
-        return []
-
-    # Nếu raw is None hoặc chỉ có count = 0
-    if not raw or len(raw) <= 1:
-        return []
-
-    total_hits = int(raw[0])
-    print(f"Tìm thấy {total_hits} chunk phù hợp.")
-
-    results = []
-    # raw: [total_hits, doc1_id, [field1, value1, field2, value2, ...], doc2_id, [...], ...]
-    for i in range(1, len(raw), 2):
-        props = raw[i + 1]
-        if not isinstance(props, list):
-            continue
-        props_dict = {}
-        for j in range(0, len(props), 2):
-            key = props[j].decode("utf-8") if isinstance(props[j], bytes) else str(props[j])
-            val = props[j + 1]
-            if isinstance(val, bytes):
-                val = val.decode("utf-8")
-            props_dict[key] = val
-        text = props_dict.get("text", "")
-        meta_str = props_dict.get("meta", "{}")
-        try:
-            meta = json.loads(meta_str)
-        except:
-            meta = {"raw_meta": meta_str}
-        try:
-            score = float(props_dict.get("vector_score", 0.0))
-        except:
-            score = 0.0
-        print(f"[DEBUG] Chunk score: {score:.4f} | Source: {meta.get('source', '')}")
-        results.append({"text": text, "meta": meta, "score": score})
-    return results
+# Số chunk lấy về và ngưỡng similarity
+TOP_K = 3 
+SIMILARITY_THRESHOLD = 0.6
+SHOW_DEBUG = False  # Thêm flag để kiểm soát việc in debug info
 
 def gemini_answer(prompt: str) -> str:
+    """Gọi Gemini để sinh câu trả lời."""
     gm = genai.GenerativeModel("models/gemini-2.0-flash")
     resp = gm.generate_content(prompt)
     return resp.text.strip()
 
-def parse_mcq(query: str):
+def parse_mcq(query: str) -> Tuple[str, Optional[Dict[str, str]]]:
+    """
+    Tách câu hỏi trắc nghiệm thành phần đề bài và các phương án.
+    Args:
+        query: Câu hỏi trắc nghiệm đầy đủ
+    Returns:
+        tuple: (stem, options) trong đó
+            - stem: phần đề bài
+            - options: dict các phương án hoặc None nếu không phải MCQ
+    """
     pattern = (
         r"(.*?)(?:\n\s*(?:A\.|A\))\s*(?P<A>.+?))"
         r"(?:\n\s*(?:B\.|B\))\s*(?P<B>.+?))"
@@ -123,92 +51,219 @@ def parse_mcq(query: str):
     m = re.search(pattern, query, flags=re.DOTALL | re.IGNORECASE)
     if not m:
         return query, None
+        
     stem = m.group(1).strip()
     options = {
         "A": m.group("A").strip(),
         "B": m.group("B").strip(),
-        "C": m.group("C").strip(),
+        "C": m.group("C").strip(), 
         "D": m.group("D").strip()
     }
     return stem, options
 
-def answer_with_context(query: str) -> str:
-    stem, options = parse_mcq(query)
-    chunks = retrieve_similar_chunks(query, top_k=TOP_K)
-    selected = [c for c in chunks if c["score"] >= SIMILARITY_THRESHOLD]
-    if not selected:
-        return gemini_answer(query)
+def format_numbered_list(text: str) -> str:
+    """
+    Sửa lỗi định dạng các đề mục số bị xuống dòng không hợp lý.
+    Hỗ trợ nhiều định dạng số: 1., 1), a., a), i., i), etc.
+    """
+    # Pattern nhận diện các loại số thứ tự
+    number_pattern = r'^(?:\d+\.|\d+\)|\w+\.|\w+\)|[ivxIVX]+\.|\([^)]+\))\s*$'
+    
+    lines = text.split('\n')
+    result = []
+    i = 0
+    
+    while i < len(lines):
+        line = lines[i].strip()
+        
+        if re.match(number_pattern, line):
+            next_content = []
+            j = i + 1
+            while j < len(lines):
+                next_line = lines[j].strip()
+                if next_line:
+                    next_content.append(next_line)
+                    if re.match(number_pattern, next_line):
+                        break
+                    j += 1
+                else:
+                    j += 1
+                    if j < len(lines) and not lines[j].strip():
+                        break
+            
+            if next_content:
+                combined = f"{line} {' '.join(next_content)}"
+                result.append(combined)
+                i = j
+                continue
+            else:
+                result.append(line)
+        else:
+            result.append(line)
+        i += 1
 
+    text2 = '\n'.join(result)
+    text2 = re.sub(r'\n{3,}', '\n\n', text2)
+    text2 = re.sub(r'\s{2,}', ' ', text2)
+    return text2
+
+def answer_with_context(query: str) -> str:
+    """
+    Trả lời câu hỏi dựa trên văn bản luật có liên quan.
+    Hỗ trợ cả câu hỏi trắc nghiệm và tự luận.
+    Args:
+        query: Câu hỏi cần trả lời
+    Returns:
+        str: Câu trả lời từ Gemini
+    """
+    # Parse câu hỏi
+    stem, options = parse_mcq(query)
+    
+    # Lấy các chunk văn bản liên quan
+    chunks = retrieve_similar_chunks(query, top_k=TOP_K)
+    
+    # Phân tích query để xác định loại luật cần tìm
+    query_lower = query.lower()
+    is_civil_law = "dân sự" in query_lower
+    is_criminal_law = "hình sự" in query_lower
+    
+    # Thông tin tóm tắt về chunks tìm được (chỉ hiện khi debug)
+    if chunks and SHOW_DEBUG:
+        print(f"\nTìm thấy {len(chunks)} chunk phù hợp (score > {SIMILARITY_THRESHOLD}):")
+        for i, c in enumerate(chunks, 1):
+            meta = c["meta"]
+            source = meta.get("source", "Unknown")
+            dieu = meta.get("dieu", "")
+            score = c.get("score", 0.0)
+            print(f"[{i}] Score: {score:.3f} | {source}{' Điều ' + dieu if dieu else ''}")
+        print()
+    
+    # Lọc chunks theo score và ưu tiên theo loại luật
+    selected = []
+    for c in chunks:
+        if c["score"] < SIMILARITY_THRESHOLD:
+            continue
+            
+        source = c["meta"].get("source", "").lower()
+        is_civil = "luật-91-2015" in source
+        is_criminal = "luật-100-2015" in source
+        
+        # Nếu query liên quan đến luật dân sự -> ưu tiên chunks từ BLDS
+        if is_civil_law and is_civil:
+            selected.append(c)
+        # Nếu query liên quan đến luật hình sự -> ưu tiên chunks từ BLHS
+        elif is_criminal_law and is_criminal:
+            selected.append(c)
+        # Nếu query không nêu rõ loại luật -> lấy tất cả chunks có score cao
+        elif not is_civil_law and not is_criminal_law:
+            selected.append(c)
+            
+    if SHOW_DEBUG:
+        print(f"Đã chọn {len(selected)} chunks cho quá trình RAG.\n")
+    
+    if not selected:
+        return "[Gemini tổng quát] " + gemini_answer(query)
+
+    # Tạo context từ các chunk
     context = ""
     for idx, c in enumerate(selected):
         meta = c["meta"]
         source = meta.get("source", "Unknown")
-        dieu   = meta.get("dieu", "")
-        khoan  = meta.get("khoan", "")
+        dieu = meta.get("dieu", "")
+        khoan = meta.get("khoan", "")
         header = f"[Đoạn {idx+1} – {source}"
         if dieu:
             header += f", Điều {dieu}"
         if khoan:
             header += f", Khoản {khoan}"
         header += "]\n"
+        
+        # Làm sạch text nhưng giữ nguyên cấu trúc
         chunk_text = c["text"]
-        chunk_text = re.sub(r"(\d+\.)\s*\n+", r"\1 ", chunk_text)
         chunk_text = chunk_text.replace("\n", " ").strip()
+        chunk_text = re.sub(r"\s+", " ", chunk_text)
         chunk_text = re.sub(r"\s*\*+\s*", " ", chunk_text)
-        chunk_text = re.sub(r"(\d+\.)\s+", r"\1 ", chunk_text)
-        chunk_text = re.sub(r"\s{2,}", " ", chunk_text)
-        chunk_text = re.sub(r"([A-ZÀ-Ỵa-zà-ỹ0-9 ,\-]+:)", r"\n- \1", chunk_text)
-        chunk_text = re.sub(r"(\d+\.) ?", r"\n\1 ", chunk_text)
-        chunk_text = re.sub(r"\s{2,}", " ", chunk_text)
-        chunk_lines = [line for line in chunk_text.split("\n") if line.strip() and line.strip() != "*"]
-        chunk_text_clean = "\n".join(chunk_lines)
-        context += header + chunk_text_clean.strip() + "\n\n"
+        context += header + chunk_text.strip() + "\n\n"
+
+    # Tạo prompt phù hợp với loại câu hỏi
     if options:
         opts_text = ""
         for key, val in options.items():
             opts_text += f"{key}. {val}\n"
         prompt = (
-            "Bạn là trợ lý pháp luật Việt Nam, chỉ trả lời hoàn toàn bằng tiếng Việt, không dùng thuật ngữ tiếng Anh.\n"
-            "Hãy trình bày câu trả lời rõ ràng, có gạch đầu dòng nếu cần, sử dụng định dạng dễ đọc cho người tra cứu pháp luật.\n"
-            "Dưới đây là các đoạn văn bản luật liên quan (có kèm metadata nếu có):\n\n"
-            f"{context}"
-            f"Hỏi (MCQ): {stem}\n"
+            "Bạn là luật sư chuyên về pháp luật Việt Nam với nhiều năm kinh nghiệm. "
+            "Hãy trả lời câu hỏi dựa trên các đoạn văn bản luật được cung cấp dưới đây. "
+            "Trả lời chính xác, ngắn gọn, dễ hiểu và chỉ dựa vào các điều luật liên quan.\n\n"
+            f"Câu hỏi (MCQ): {stem}\n"
             "Phương án:\n" + opts_text + "\n"
-            "Hãy chọn 1 trong 4 phương án (A/B/C/D) dựa vào văn bản luật ở trên. "
+            f"Văn bản luật liên quan:\n{context}\n"
+            "Hãy chọn 1 trong 4 phương án (A/B/C/D) dựa vao văn bản luật ở trên. "
             "Nếu không đủ dữ liệu để trả lời, hãy nói rõ là không đủ dữ liệu. "
             "Nếu có thể, giải thích ngắn gọn."
         )
     else:
         prompt = (
-            "Bạn là trợ lý pháp luật Việt Nam, chỉ trả lời hoàn toàn bằng tiếng Việt, không dùng thuật ngữ tiếng Anh.\n"
-            "Hãy trình bày câu trả lời rõ ràng, có gạch đầu dòng nếu cần, sử dụng định dạng dễ đọc cho người tra cứu pháp luật.\n"
-            "Các đoạn văn bản luật liên quan (có kèm metadata nếu có):\n\n"
-            f"{context}"
-            f"Hỏi: {query}\n"
+            "Bạn là luật sư chuyên về pháp luật Việt Nam với nhiều năm kinh nghiệm. "
+            "Hãy trả lời câu hỏi dựa trên các đoạn văn bản luật được cung cấp dưới đây. "
+            "Trả lời chính xác, ngắn gọn, dễ hiểu và chỉ dựa vào các điều luật liên quan.\n\n"
+            f"Câu hỏi: {query}\n\n"
+            f"Văn bản luật liên quan:\n{context}\n"
             "Trả lời ngắn gọn, rõ ràng, trích dẫn chính xác Điều, Khoản nếu có. "
             "Nếu không đủ dữ liệu để trả lời, hãy nói rõ là không đủ dữ liệu."
         )
+
+    # Gọi Gemini và format câu trả lời
     rag_answer = gemini_answer(prompt)
+    rag_answer = format_numbered_list(rag_answer)
+    
+    # Kiểm tra xem có dùng được thông tin từ văn bản luật không
     lower_ans = rag_answer.lower()
-    if any(kw in lower_ans for kw in [
-        "không đủ dữ liệu", "không thể trả lời", "không có đủ thông tin", "không tìm thấy thông tin", "không có thông tin"
-    ]):
-        return "[Gemini tổng quát] " + gemini_answer(query)
-    return "[LawBot (RAG)] " + rag_answer
+    # Các từ khóa chỉ ra rằng không có thông tin phù hợp trong văn bản luật
+    keywords_no_info = [
+        "xin lỗi, không đủ dữ liệu",
+        "xin lỗi, không thể trả lời",
+        "rất tiếc, không có đủ thông tin",
+        "không tìm thấy thông tin liên quan",
+        "không có thông tin phù hợp"
+    ]
+    
+    # Thêm disclaimer vào cuối câu trả lời
+    disclaimer = (
+        "\n\nLưu ý: Nếu bạn hoặc ai đó bạn biết đang gặp vấn đề liên quan đến pháp luật, "
+        "hãy tìm kiếm sự tư vấn của luật sư để được hỗ trợ pháp lý tốt nhất. "
+        "* Thông tin này không thay thế cho tư vấn pháp lý chuyên nghiệp. "
+        "Bạn nên tham khảo ý kiến của luật sư hoặc chuyên gia pháp lý để được tư vấn cụ thể trong từng trường hợp."
+    )
+    
+    if not context or any(kw in lower_ans for kw in keywords_no_info):
+        print("=> Chuyển sang Gemini tổng quát do không có thông tin phù hợp")
+        final_answer = "[Gemini tổng quát] " + gemini_answer(query)
+    else:
+        print("=> Sử dụng LawBot RAG với context từ văn bản luật")
+        final_answer = "[LawBot (RAG)] " + rag_answer
+    
+    return final_answer + disclaimer
 
 # --------------------------------------------
-# 4. KIỂM THỬ TRỰC TIẾP KHI CHẠY FILE NÀY
+# PHẦN TEST KHI CHẠY TRỰC TIẾP
 # --------------------------------------------
 if __name__ == "__main__":
+    print("\n=== TEST TRẮC NGHIỆM ===")
     test_mcq = """
-    Theo Nghị định 152/2024/NĐ-CP, bạn sẽ bị phạt tiền khi:
-    A. Kinh doanh bất động sản chưa được cấp phép.
-    B. Không kê khai thuế khi bán bất động sản.
-    C. Cho thuê nhà không hợp đồng.
-    D. Không đăng ký giấy phép xây dựng.
+Theo quy định của Bộ luật Dân sự, người từ đủ 6 tuổi đến chưa đủ 18 tuổi có thể:
+A. Tự mình xác lập và thực hiện giao dịch dân sự
+B. Chỉ có thể thực hiện giao dịch thông qua người đại diện
+C. Tự mình xác lập và thực hiện giao dịch dân sự nếu được cha mẹ đồng ý
+D. Tự mình xác lập, thực hiện các giao dịch dân sự phục vụ nhu cầu sinh hoạt hàng ngày
     """
-    print("=== Test MCQ ===")
+    print("Câu hỏi trắc nghiệm mẫu:")
+    print(test_mcq)
+    print("\nKết quả trả lời:")
     print(answer_with_context(test_mcq))
-    print("\n=== Test tự luận ===")
-    test_query = "Khi nào tôi bị phạt tiền khi kinh doanh bất động sản chưa cấp phép?"
-    print(answer_with_context(test_query))
+
+    print("\n=== TEST TỰ LUẬN ===")
+    test_essay = "Trình bày các quy định về năng lực hành vi dân sự của người từ đủ 6 tuổi đến chưa đủ 18 tuổi?"
+    print("Câu hỏi tự luận mẫu:")
+    print(test_essay)
+    print("\nKết quả trả lời:")
+    print(answer_with_context(test_essay))
