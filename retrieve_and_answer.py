@@ -137,7 +137,7 @@ def answer_with_context(query: str) -> str:
     chunks = retrieve_similar_chunks(query, top_k=TOP_K)
     selected = [c for c in chunks if c["score"] >= SIMILARITY_THRESHOLD]
     if not selected:
-        return "[Gemini] " + gemini_answer(query)
+        return gemini_answer(query)
 
     context = ""
     for idx, c in enumerate(selected):
@@ -151,13 +151,25 @@ def answer_with_context(query: str) -> str:
         if khoan:
             header += f", Khoản {khoan}"
         header += "]\n"
-        context += header + c["text"] + "\n\n"
+        chunk_text = c["text"]
+        chunk_text = re.sub(r"(\d+\.)\s*\n+", r"\1 ", chunk_text)
+        chunk_text = chunk_text.replace("\n", " ").strip()
+        chunk_text = re.sub(r"\s*\*+\s*", " ", chunk_text)
+        chunk_text = re.sub(r"(\d+\.)\s+", r"\1 ", chunk_text)
+        chunk_text = re.sub(r"\s{2,}", " ", chunk_text)
+        chunk_text = re.sub(r"([A-ZÀ-Ỵa-zà-ỹ0-9 ,\-]+:)", r"\n- \1", chunk_text)
+        chunk_text = re.sub(r"(\d+\.) ?", r"\n\1 ", chunk_text)
+        chunk_text = re.sub(r"\s{2,}", " ", chunk_text)
+        chunk_lines = [line for line in chunk_text.split("\n") if line.strip() and line.strip() != "*"]
+        chunk_text_clean = "\n".join(chunk_lines)
+        context += header + chunk_text_clean.strip() + "\n\n"
     if options:
         opts_text = ""
         for key, val in options.items():
             opts_text += f"{key}. {val}\n"
         prompt = (
-            "Bạn là trợ lý hiểu biết sâu về pháp luật Việt Nam.\n"
+            "Bạn là trợ lý pháp luật Việt Nam, chỉ trả lời hoàn toàn bằng tiếng Việt, không dùng thuật ngữ tiếng Anh.\n"
+            "Hãy trình bày câu trả lời rõ ràng, có gạch đầu dòng nếu cần, sử dụng định dạng dễ đọc cho người tra cứu pháp luật.\n"
             "Dưới đây là các đoạn văn bản luật liên quan (có kèm metadata nếu có):\n\n"
             f"{context}"
             f"Hỏi (MCQ): {stem}\n"
@@ -168,7 +180,8 @@ def answer_with_context(query: str) -> str:
         )
     else:
         prompt = (
-            "Bạn là trợ lý hiểu biết sâu về pháp luật Việt Nam.\n"
+            "Bạn là trợ lý pháp luật Việt Nam, chỉ trả lời hoàn toàn bằng tiếng Việt, không dùng thuật ngữ tiếng Anh.\n"
+            "Hãy trình bày câu trả lời rõ ràng, có gạch đầu dòng nếu cần, sử dụng định dạng dễ đọc cho người tra cứu pháp luật.\n"
             "Các đoạn văn bản luật liên quan (có kèm metadata nếu có):\n\n"
             f"{context}"
             f"Hỏi: {query}\n"
