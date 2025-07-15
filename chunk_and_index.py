@@ -126,7 +126,7 @@ def index_all_chunks(txt_folder: str):
             meta = {
                 "source": filename.replace(".txt", ""),
                 "chunk_id": i
-                # Nếu bạn parse được Điều/Khoản từ chunk, có thể gán meta["dieu"], meta["khoan"] ở đây
+                # Nếu parse được Điều/Khoản từ chunk, có thể gán meta["dieu"], meta["khoan"] ở đây
             }
             meta_str = json.dumps(meta, ensure_ascii=False)
 
