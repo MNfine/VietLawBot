@@ -153,6 +153,166 @@
                 padding: 4px 10px;
             }
         }
+        
+        /* CSS cho các Tabs và Blog bài viết */
+        .tabs {
+            display: flex;
+            border-bottom: 2px solid #e0e0e0;
+            margin-bottom: 24px;
+            gap: 16px;
+        }
+        .tab-btn {
+            background: none;
+            border: none;
+            padding: 12px 24px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #666;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .tab-btn:hover {
+            color: #1976d2;
+        }
+        .tab-btn.active {
+            color: #1976d2;
+            border-bottom-color: #1976d2;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .admin-actions {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 20px;
+            gap: 12px;
+        }
+        .admin-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 18px;
+            border-radius: 20px;
+            font-weight: 600;
+            text-decoration: none;
+            font-size: 0.95rem;
+            transition: all 0.2s;
+        }
+        .btn-primary {
+            background: #e07a5f;
+            color: white;
+            border: 1.5px solid #e07a5f;
+        }
+        .btn-primary:hover {
+            background: #d06650;
+            transform: translateY(-2px);
+        }
+        .btn-secondary {
+            background: #e3f2fd;
+            color: #1565c0;
+            border: 1.5px solid #1565c0;
+        }
+        .btn-secondary:hover {
+            background: #bbdefb;
+            transform: translateY(-2px);
+        }
+        .blog-list {
+            margin: 0;
+            padding: 0;
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .blog-card {
+            display: flex;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(33, 150, 243, 0.05);
+            overflow: hidden;
+            transition: transform 0.2s, box-shadow 0.2s;
+            border: 1px solid #e3f2fd;
+        }
+        .blog-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 24px rgba(33, 150, 243, 0.12);
+        }
+        .blog-thumb {
+            width: 200px;
+            min-width: 200px;
+            background: linear-gradient(135deg, #1976d2 0%, #64b5f6 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            position: relative;
+        }
+        .blog-thumb img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .blog-thumb .material-icons {
+            font-size: 48px;
+        }
+        .blog-info {
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            flex-grow: 1;
+        }
+        .blog-card-title {
+            margin: 0 0 8px 0;
+            font-size: 1.25rem;
+            font-weight: 700;
+        }
+        .blog-card-title a {
+            color: #0d47a1;
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+        .blog-card-title a:hover {
+            color: #1976d2;
+        }
+        .blog-excerpt {
+            color: #555;
+            font-size: 0.95rem;
+            line-height: 1.5;
+            margin-bottom: 12px;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .blog-meta {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            font-size: 0.85rem;
+            color: #777;
+        }
+        .blog-meta span {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        @media (max-width: 600px) {
+            .blog-card {
+                flex-direction: column;
+            }
+            .blog-thumb {
+                width: 100%;
+                height: 140px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -162,144 +322,216 @@
         </a>
         <h1> Tin tức pháp luật mới nhất</h1>
 
-        <!-- Thanh tìm kiếm chính -->
-        <form id="main-search-form" method="get" style="margin-bottom: 18px;">
-            {% for field in selected_fields %}
-            <input type="hidden" name="field" value="{{ field }}">
-            {% endfor %}
-            {% for doc_type in selected_types %}  
-            <input type="hidden" name="doc_type" value="{{ doc_type }}">
-            {% endfor %}
-            {% for agency in selected_agencies %}
-            <input type="hidden" name="agency" value="{{ agency }}"> 
-            {% endfor %}
+        <!-- Thanh quản trị bài viết (Chỉ hiện khi tài khoản là admin) -->
+        {% if is_admin() %}
+        <div class="admin-actions">
+            <a href="{{ url_for('post_new') }}" class="admin-btn btn-primary">
+                <span class="material-icons">add</span> Viết bài SEO mới
+            </a>
+            <a href="{{ url_for('post_admin') }}" class="admin-btn btn-secondary">
+                <span class="material-icons">dashboard</span> Quản lý bài viết
+            </a>
+        </div>
+        {% endif %}
 
-            <div style="display: flex; gap: 0;">
-                <input type="text" name="q" id="main-search-input"
-                       value="{{ request.args.get('q', '') }}"
-                       placeholder="Tìm kiếm theo tên văn bản..."
-                       style="flex:1; padding:10px 14px; border-radius:6px 0 0 6px; border:1.5px solid #bbb; font-size:0.98rem; border-right:none;">
-                <button type="submit" style="padding:0 16px; border-radius:0 6px 6px 0; background:#e07a5f; color:#fff; font-weight:600; border:1.5px solid #e07a5f; font-size:0.98rem; display:flex; align-items:center; gap:4px; cursor:pointer;">
-                    <span class="material-icons" style="font-size:18px;">search</span>
-                    Tìm kiếm
-                </button>
-            </div>
-            <!-- Thêm thông báo số kết quả tìm được -->
-            {% if request.args.get('q') %}
-            <div style="margin-top:8px; color:#666; font-size:0.9rem;">
-                Tìm thấy {{ docs|length }} văn bản phù hợp với từ khóa "{{ request.args.get('q') }}"
-            </div>
-            {% endif %}
-        </form>
+        <!-- Hệ thống Tab điều hướng -->
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab(event, 'legal-docs')">
+                <span class="material-icons" style="font-size: 20px;">gavel</span>
+                Văn bản pháp luật
+            </button>
+            <button class="tab-btn" onclick="switchTab(event, 'blog-posts')">
+                <span class="material-icons" style="font-size: 20px;">article</span>
+                Bài viết phân tích
+            </button>
+        </div>
 
-        <!-- Bộ lọc -->
-        <form id="news-filter-form" method="get" style="margin-bottom: 24px;">
-            <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: flex-start;">
-                <span style="font-weight:600; min-width:50px;">Bộ lọc:</span>
-                <!-- Lĩnh vực tra cứu -->
-                <div style="flex:2; min-width:190px; position:relative;">
-                    <div style="position:relative;">
-                        <div onclick="toggleDropdown('field')" style="width:80%; padding:8px 12px; border-radius:6px; border:1.5px solid #bbb; font-size:0.95rem; background:#fff; cursor:pointer; display:flex; align-items:center; justify-content:space-between;">
-                            <span id="field-selected-label" style="font-size:0.95rem;">Tất cả lĩnh vực</span>
-                            <span class="material-icons" style="font-size:16px;">expand_more</span>
-                        </div>
-                        <div id="field-dropdown" style="display:none; position:absolute; top:38px; left:0; width:100%; background:#fff; border:1.5px solid #1976d2; border-radius:8px; max-height:260px; overflow:auto; z-index:30; box-shadow:0 2px 8px rgba(33,150,243,0.08);">
-                            <input type="text" id="field-search" placeholder="Tìm lĩnh vực..." style="width:80%; margin:6px 2%; padding:8px 10px; border-radius:6px; border:1px solid #bbb; font-size:1rem;">
-                            <div id="field-checkboxes" style="padding: 4px 0 8px 0;">
-                                <!-- JS sẽ render các checkbox ở đây -->
-                            </div>
-                        </div>
-                    </div>
+        <!-- Tab 1: Danh sách văn bản pháp luật -->
+        <div id="legal-docs" class="tab-content active">
+            <!-- Thanh tìm kiếm chính -->
+            <form id="main-search-form" method="get" style="margin-bottom: 18px;">
+                {% for field in selected_fields %}
+                <input type="hidden" name="field" value="{{ field }}">
+                {% endfor %}
+                {% for doc_type in selected_types %}  
+                <input type="hidden" name="doc_type" value="{{ doc_type }}">
+                {% endfor %}
+                {% for agency in selected_agencies %}
+                <input type="hidden" name="agency" value="{{ agency }}"> 
+                {% endfor %}
+
+                <div style="display: flex; gap: 0;">
+                    <input type="text" name="q" id="main-search-input"
+                           value="{{ request.args.get('q', '') }}"
+                           placeholder="Tìm kiếm theo tên văn bản..."
+                           style="flex:1; padding:10px 14px; border-radius:6px 0 0 6px; border:1.5px solid #bbb; font-size:0.98rem; border-right:none;">
+                    <button type="submit" style="padding:0 16px; border-radius:0 6px 6px 0; background:#e07a5f; color:#fff; font-weight:600; border:1.5px solid #e07a5f; font-size:0.98rem; display:flex; align-items:center; gap:4px; cursor:pointer;">
+                        <span class="material-icons" style="font-size:18px;">search</span>
+                        Tìm kiếm
+                    </button>
                 </div>
-
-                <!-- Tương tự cho type và agency, giảm kích thước tương tự -->
-                <div style="flex:2; min-width:190px; position:relative;">
-                    <div style="position:relative;">
-                        <div onclick="toggleDropdown('type')" style="width:80%; padding:8px 12px; border-radius:6px; border:1.5px solid #bbb; font-size:0.95rem; background:#fff; cursor:pointer; display:flex; align-items:center; justify-content:space-between;">
-                            <span id="type-selected-label" style="font-size:0.95rem;">Tất cả loại văn bản</span>
-                            <span class="material-icons" style="font-size:16px;">expand_more</span>
-                        </div>
-                        <div id="type-dropdown" style="display:none; position:absolute; top:38px; left:0; width:100%; background:#fff; border:1.5px solid #1976d2; border-radius:8px; max-height:260px; overflow:auto; z-index:20; box-shadow:0 2px 8px rgba(33,150,243,0.08);">
-                            <input type="text" id="type-search" placeholder="Tìm loại văn bản..." style="width:80%; margin:6px 2%; padding:8px 10px; border-radius:6px; border:1px solid #bbb; font-size:1rem;">
-                            <div id="type-checkboxes" style="padding: 4px 0 8px 0;">
-                                <!-- JS sẽ render các checkbox ở đây -->
-                            </div>
-                        </div>
-                    </div>
+                <!-- Thêm thông báo số kết quả tìm được -->
+                {% if request.args.get('q') %}
+                <div style="margin-top:8px; color:#666; font-size:0.9rem;">
+                    Tìm thấy {{ docs|length }} văn bản phù hợp với từ khóa "{{ request.args.get('q') }}"
                 </div>
-                <div style="flex:2; min-width:190px; position:relative;">
-                    <div style="position:relative;">
-                        <div onclick="toggleDropdown('agency')" style="width:80%; padding:8px 12px; border-radius:6px; border:1.5px solid #bbb; font-size:0.95rem; background:#fff; cursor:pointer; display:flex; align-items:center; justify-content:space-between;">
-                            <span id="agency-selected-label" style="font-size:0.95rem;">Tất cả cơ quan</span>
-                            <span class="material-icons" style="font-size:16px;">expand_more</span>
-                        </div>
-                        <div id="agency-dropdown" style="display:none; position:absolute; top:38px; left:0; width:100%; background:#fff; border:1.5px solid #1976d2; border-radius:8px; max-height:260px; overflow:auto; z-index:10; box-shadow:0 2px 8px rgba(33,150,243,0.08);">
-                            <input type="text" id="agency-search" placeholder="Tìm cơ quan ban hành..." style="width:80%; margin:6px 2%; padding:8px 10px; border-radius:6px; border:1px solid #bbb; font-size:1rem;">
-                            <div id="agency-checkboxes" style="padding: 4px 0 8px 0;">
-                                <!-- JS sẽ render các checkbox ở đây -->
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <button type="submit" style="padding:8px 16px; border-radius:6px; background:#1565c0; color:#fff; font-weight:600; border:none; font-size:0.95rem; display:flex; align-items:center; gap:4px; cursor:pointer;">
-                    <span class="material-icons" style="font-size:16px;">search</span>
-                    Tìm kiếm
-                </button>
-            </div>
-        </form>
-
-        <ul class="news-list">
-            {% for doc in docs %}
-            <li class="news-item">
-                <div>
-                    <span class="news-title">
-                        <span class="material-icons" style="font-size:20px;color:#1976d2;">description</span>
-                        {{ doc.name }}
-                    </span>
-                    <span class="news-date">{{ doc.mtime | datetimeformat }}</span>
-                    
-                    <!-- Hiển thị nhãn metadata -->
-                    <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
-                        {% if doc.category %}
-                        <span style="background:#ffe0b2; padding:2px 8px; border-radius:12px; font-size:0.85rem; color:#b26a00;">
-                            {{ doc.category }}
-                        </span>
-                        {% endif %}
-                        
-                        {% if doc.field %}
-                        <span style="background:#e3f2fd; padding:2px 8px; border-radius:12px; font-size:0.85rem;">
-                            {{ doc.field }}
-                        </span>
-                        {% endif %}
-                        
-                        {% if doc.doc_type %}
-                        <span style="background:#e8f5e9; padding:2px 8px; border-radius:12px; font-size:0.85rem;">
-                            {{ doc.doc_type }}
-                        </span>
-                        {% endif %}
-
-                        {% if doc.agency %}
-                        <span style="background:#fff3e0; padding:2px 8px; border-radius:12px; font-size:0.85rem;">
-                            {{ doc.agency }}
-                        </span>
-                        {% endif %}
-                    </div>
-                </div>
-                <a class="download-link" href="{{ url_for('download_plain_text', filename=doc.filename) }}">
-                    <span class="material-icons" style="font-size:18px;">download</span>
-                    Tải về
-                </a>
-            </li>
-            {% else %}
-            <li style="text-align:center; color:#888; padding: 24px 0;">
-                {% if selected_fields or selected_types or selected_agencies %}
-                    Không tìm thấy văn bản phù hợp với bộ lọc đã chọn.
-                {% else %}
-                    Chưa có văn bản nào được cập nhật.
                 {% endif %}
-            </li>
-            {% endfor %}
-        </ul>
+            </form>
+
+            <!-- Bộ lọc -->
+            <form id="news-filter-form" method="get" style="margin-bottom: 24px;">
+                <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: flex-start;">
+                    <span style="font-weight:600; min-width:50px;">Bộ lọc:</span>
+                    <!-- Lĩnh vực tra cứu -->
+                    <div style="flex:2; min-width:190px; position:relative;">
+                        <div style="position:relative;">
+                            <div onclick="toggleDropdown('field')" style="width:80%; padding:8px 12px; border-radius:6px; border:1.5px solid #bbb; font-size:0.95rem; background:#fff; cursor:pointer; display:flex; align-items:center; justify-content:space-between;">
+                                <span id="field-selected-label" style="font-size:0.95rem;">Tất cả lĩnh vực</span>
+                                <span class="material-icons" style="font-size:16px;">expand_more</span>
+                            </div>
+                            <div id="field-dropdown" style="display:none; position:absolute; top:38px; left:0; width:100%; background:#fff; border:1.5px solid #1976d2; border-radius:8px; max-height:260px; overflow:auto; z-index:30; box-shadow:0 2px 8px rgba(33,150,243,0.08);">
+                                <input type="text" id="field-search" placeholder="Tìm lĩnh vực..." style="width:80%; margin:6px 2%; padding:8px 10px; border-radius:6px; border:1px solid #bbb; font-size:1rem;">
+                                <div id="field-checkboxes" style="padding: 4px 0 8px 0;">
+                                    <!-- JS sẽ render các checkbox ở đây -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tương tự cho type và agency, giảm kích thước tương tự -->
+                    <div style="flex:2; min-width:190px; position:relative;">
+                        <div style="position:relative;">
+                            <div onclick="toggleDropdown('type')" style="width:80%; padding:8px 12px; border-radius:6px; border:1.5px solid #bbb; font-size:0.95rem; background:#fff; cursor:pointer; display:flex; align-items:center; justify-content:space-between;">
+                                <span id="type-selected-label" style="font-size:0.95rem;">Tất cả loại văn bản</span>
+                                <span class="material-icons" style="font-size:16px;">expand_more</span>
+                            </div>
+                            <div id="type-dropdown" style="display:none; position:absolute; top:38px; left:0; width:100%; background:#fff; border:1.5px solid #1976d2; border-radius:8px; max-height:260px; overflow:auto; z-index:20; box-shadow:0 2px 8px rgba(33,150,243,0.08);">
+                                <input type="text" id="type-search" placeholder="Tìm loại văn bản..." style="width:80%; margin:6px 2%; padding:8px 10px; border-radius:6px; border:1px solid #bbb; font-size:1rem;">
+                                <div id="type-checkboxes" style="padding: 4px 0 8px 0;">
+                                    <!-- JS sẽ render các checkbox ở đây -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="flex:2; min-width:190px; position:relative;">
+                        <div style="position:relative;">
+                            <div onclick="toggleDropdown('agency')" style="width:80%; padding:8px 12px; border-radius:6px; border:1.5px solid #bbb; font-size:0.95rem; background:#fff; cursor:pointer; display:flex; align-items:center; justify-content:space-between;">
+                                <span id="agency-selected-label" style="font-size:0.95rem;">Tất cả cơ quan</span>
+                                <span class="material-icons" style="font-size:16px;">expand_more</span>
+                            </div>
+                            <div id="agency-dropdown" style="display:none; position:absolute; top:38px; left:0; width:100%; background:#fff; border:1.5px solid #1976d2; border-radius:8px; max-height:260px; overflow:auto; z-index:10; box-shadow:0 2px 8px rgba(33,150,243,0.08);">
+                                <input type="text" id="agency-search" placeholder="Tìm cơ quan ban hành..." style="width:80%; margin:6px 2%; padding:8px 10px; border-radius:6px; border:1px solid #bbb; font-size:1rem;">
+                                <div id="agency-checkboxes" style="padding: 4px 0 8px 0;">
+                                    <!-- JS sẽ render các checkbox ở đây -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <button type="submit" style="padding:8px 16px; border-radius:6px; background:#1565c0; color:#fff; font-weight:600; border:none; font-size:0.95rem; display:flex; align-items:center; gap:4px; cursor:pointer;">
+                        <span class="material-icons" style="font-size:16px;">search</span>
+                        Tìm kiếm
+                    </button>
+                </div>
+            </form>
+
+            <ul class="news-list">
+                {% for doc in docs %}
+                <li class="news-item">
+                    <div>
+                        <span class="news-title">
+                            <span class="material-icons" style="font-size:20px;color:#1976d2;">description</span>
+                            {{ doc.name }}
+                        </span>
+                        <span class="news-date">{{ doc.mtime | datetimeformat }}</span>
+                        
+                        <!-- Hiển thị nhãn metadata -->
+                        <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
+                            {% if doc.category %}
+                            <span style="background:#ffe0b2; padding:2px 8px; border-radius:12px; font-size:0.85rem; color:#b26a00;">
+                                {{ doc.category }}
+                            </span>
+                            {% endif %}
+                            
+                            {% if doc.field %}
+                            <span style="background:#e3f2fd; padding:2px 8px; border-radius:12px; font-size:0.85rem;">
+                                {{ doc.field }}
+                            </span>
+                            {% endif %}
+                            
+                            {% if doc.doc_type %}
+                            <span style="background:#e8f5e9; padding:2px 8px; border-radius:12px; font-size:0.85rem;">
+                                {{ doc.doc_type }}
+                            </span>
+                            {% endif %}
+
+                            {% if doc.agency %}
+                            <span style="background:#fff3e0; padding:2px 8px; border-radius:12px; font-size:0.85rem;">
+                                {{ doc.agency }}
+                            </span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <a class="download-link" href="{{ url_for('download_plain_text', filename=doc.filename) }}">
+                        <span class="material-icons" style="font-size:18px;">download</span>
+                        Tải về
+                    </a>
+                </li>
+                {% else %}
+                <li style="text-align:center; color:#888; padding: 24px 0;">
+                    {% if selected_fields or selected_types or selected_agencies %}
+                        Không tìm thấy văn bản phù hợp với bộ lọc đã chọn.
+                    {% else %}
+                        Chưa có văn bản nào được cập nhật.
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+
+        <!-- Tab 2: Danh sách bài viết phân tích (Blog) -->
+        <div id="blog-posts" class="tab-content">
+            <ul class="blog-list">
+                {% for post in posts %}
+                <li class="blog-card">
+                    <div class="blog-thumb">
+                        {% if post.thumbnail_url %}
+                        <img src="{{ post.thumbnail_url }}" alt="{{ post.title }}">
+                        {% else %}
+                        <span class="material-icons">gavel</span>
+                        {% endif %}
+                    </div>
+                    <div class="blog-info">
+                        <div>
+                            <h2 class="blog-card-title">
+                                <a href="{{ url_for('post_detail', slug=post.slug) }}">{{ post.title }}</a>
+                            </h2>
+                            <p class="blog-excerpt">{{ post.meta_description or 'Đọc bài viết phân tích chi tiết về các luật và quy định pháp lý hiện hành tại Việt Nam...' }}</p>
+                        </div>
+                        <div class="blog-meta">
+                            <span title="Tác giả">
+                                <span class="material-icons" style="font-size: 16px;">account_circle</span>
+                                {% if post.author %}{{ post.author.username }}{% else %}VietLawBot{% endif %}
+                            </span>
+                            <span title="Ngày đăng">
+                                <span class="material-icons" style="font-size: 16px;">calendar_today</span>
+                                {{ post.created_at.strftime('%d/%m/%Y') }}
+                            </span>
+                            {% if post.keywords %}
+                            <span title="Từ khóa">
+                                <span class="material-icons" style="font-size: 16px;">local_offer</span>
+                                {{ post.keywords.split(',')[0] }}
+                            </span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </li>
+                {% else %}
+                <li style="text-align:center; color:#888; padding: 48px 0; background:#f9f9f9; border-radius:12px; border: 1px dashed #bbb; list-style:none;">
+                    Chưa có bài viết phân tích nào được cập nhật.
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
     </div>
     <script>
         // Danh sách lọc mới
@@ -448,6 +680,41 @@
                 // Render checkbox ban đầu
                 renderCheckboxes(options, type + '-checkboxes', type, type + '-selected-label');
             });
+        });
+
+        // Tab switcher logic
+        function switchTab(evt, tabName) {
+            var tabContents = document.getElementsByClassName("tab-content");
+            for (var i = 0; i < tabContents.length; i++) {
+                tabContents[i].classList.remove("active");
+            }
+
+            var tabBtns = document.getElementsByClassName("tab-btn");
+            for (var i = 0; i < tabBtns.length; i++) {
+                tabBtns[i].classList.remove("active");
+            }
+
+            document.getElementById(tabName).classList.add("active");
+            evt.currentTarget.classList.add("active");
+            
+            // Store active tab in sessionStorage so it persists on reload
+            sessionStorage.setItem("active_news_tab", tabName);
+        }
+
+        // Restore active tab on load if exists
+        window.addEventListener('load', function() {
+            var activeTab = sessionStorage.getItem("active_news_tab");
+            if (activeTab && document.getElementById(activeTab)) {
+                var tabBtns = document.getElementsByClassName("tab-btn");
+                for (var i = 0; i < tabBtns.length; i++) {
+                    var btn = tabBtns[i];
+                    var clickAttr = btn.getAttribute("onclick");
+                    if (clickAttr && clickAttr.indexOf(activeTab) !== -1) {
+                        btn.click();
+                        break;
+                    }
+                }
+            }
         });
     </script>
 </body>

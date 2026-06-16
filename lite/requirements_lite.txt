@@ -1,0 +1,41 @@
+# Requirements cho VietLawBot Lite
+# Phiên bản nhẹ - Không sử dụng Docker/Redis
+
+# Flask và các extension
+flask
+flask-sqlalchemy
+flask-login
+flask-mail
+flask-dance
+werkzeug
+Jinja2
+SQLAlchemy
+blinker
+
+# Google Generative AI (Gemini)
+google-generativeai
+
+# NLP và Embedding
+sentence-transformers
+numpy
+torch
+
+# OCR (tùy chọn - comment nếu không cần)
+pillow
+pytesseract
+pdf2image
+
+# Authentication
+google-auth
+google-auth-oauthlib
+google-api-python-client
+oauthlib
+cryptography
+email-validator
+
+# Utilities
+python-dotenv
+requests
+huggingface-hub
+
+# Lưu ý: Không cần redis, gunicorn (cho Docker)

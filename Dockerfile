@@ -24,4 +24,5 @@ COPY . .
 
 EXPOSE 5002
 
-CMD ["python", "-u", "app.py"]
+# Sử dụng Gunicorn cho production (4 workers)
+CMD ["gunicorn", "--bind", "0.0.0.0:5002", "--workers", "4", "--timeout", "120", "app:app"]

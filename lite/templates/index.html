@@ -190,6 +190,7 @@
             box-shadow: 0 2px 12px rgba(0,0,0,0.05);
             border-left: 4px solid #e07a5f;
             animation: slideIn 0.3s ease;
+            white-space: pre-wrap;
         }
         .answer p {
             margin-bottom: 16px;
@@ -206,6 +207,7 @@
             box-shadow: 0 2px 12px rgba(0,0,0,0.05);
             border-left: 4px solid #f2cc8f;
             animation: slideIn 0.3s ease;
+            white-space: pre-wrap;
         }
         .section {
             margin-bottom: 32px;
@@ -394,31 +396,13 @@
             }
         }
 
-        // Định dạng nội dung câu trả lời (mini markdown renderer)
-        function renderMarkdown(text) {
-            // Escape HTML
-            text = text
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;');
-
-            // Bold: **text**
-            text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-
-            // Horizontal rule: --- trên dòng riêng
-            text = text.replace(/(^|\n)---(\n|$)/g, '$1<hr style="border:none;border-top:1px solid #e0d5cc;margin:16px 0;">$2');
-
-            // Xuống dòng thành <br>
-            text = text.replace(/\n/g, '<br>');
-
-            return text;
-        }
-
+        // Định dạng nội dung câu trả lời
         function formatAnswer() {
-            const answerEl = document.querySelector('.answer');
-            if (answerEl) {
-                const raw = answerEl.textContent || answerEl.innerText;
-                answerEl.innerHTML = renderMarkdown(raw);
+            const answer = document.querySelector('.answer');
+            if (answer) {
+                const text = answer.innerHTML;
+                const paragraphs = text.split('**').filter(p => p.trim());
+                answer.innerHTML = paragraphs.map(p => `<p>${p.trim()}</p>`).join('');
             }
         }
 

@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>{% if action == 'new' %}Viết bài mới{% else %}Chỉnh sửa bài viết{% endif %} | VietLawBot</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    
+    <!-- Quill.js CDN -->
+    <link href="https://cdn.jsdelivr.net/npm/quill@1.3.7/dist/quill.snow.css" rel="stylesheet">
+    
+    <style>
+        body {
+            background: #f4f7fa;
+            color: #2c3e50;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+        }
+        .form-header {
+            background: #fff;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            padding: 16px 24px;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .form-header h1 {
+            margin: 0;
+            font-size: 1.5rem;
+            color: #0d47a1;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .back-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            color: #1976d2;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .workspace {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px 40px 20px;
+            display: grid;
+            grid-template-columns: 7fr 5fr;
+            gap: 24px;
+        }
+        @media (max-width: 992px) {
+            .workspace {
+                grid-template-columns: 1fr;
+            }
+        }
+        .card {
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 4px 16px rgba(33,150,243,0.04);
+            padding: 24px;
+            border: 1px solid #e3f2fd;
+            margin-bottom: 24px;
+        }
+        .card-title {
+            font-size: 1.15rem;
+            font-weight: 700;
+            color: #0d47a1;
+            margin-top: 0;
+            margin-bottom: 18px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            border-bottom: 1px solid #e3f2fd;
+            padding-bottom: 10px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 6px;
+            font-size: 0.95rem;
+            color: #333;
+        }
+        input[type="text"], select {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1.5px solid #bbb;
+            border-radius: 8px;
+            font-size: 0.98rem;
+            box-sizing: border-box;
+            transition: border-color 0.2s;
+        }
+        input[type="text"]:focus, select:focus {
+            border-color: #1976d2;
+            outline: none;
+        }
+        textarea.seo-input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1.5px solid #bbb;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            box-sizing: border-box;
+            resize: vertical;
+            min-height: 70px;
+            transition: border-color 0.2s;
+        }
+        textarea.seo-input:focus {
+            border-color: #1976d2;
+            outline: none;
+        }
+        /* Style for Quill editor */
+        #editor-container {
+            height: 400px;
+            border-radius: 0 0 8px 8px;
+        }
+        .ql-toolbar.ql-snow {
+            border-radius: 8px 8px 0 0;
+        }
+        /* SEO Scoring & Preview */
+        .google-preview {
+            background: #fff;
+            padding: 16px;
+            border-radius: 8px;
+            border: 1px solid #dadce0;
+            margin-bottom: 20px;
+        }
+        .preview-title {
+            color: #1a0dab;
+            font-size: 1.25rem;
+            margin: 0 0 4px 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            font-family: Arial, sans-serif;
+        }
+        .preview-url {
+            color: #006621;
+            font-size: 0.85rem;
+            margin: 0 0 4px 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            font-family: Arial, sans-serif;
+        }
+        .preview-desc {
+            color: #545454;
+            font-size: 0.88rem;
+            line-height: 1.4;
+            margin: 0;
+            font-family: Arial, sans-serif;
+            word-wrap: break-word;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .score-bar-container {
+            height: 12px;
+            background: #e0e0e0;
+            border-radius: 6px;
+            overflow: hidden;
+            margin-bottom: 8px;
+            position: relative;
+        }
+        .score-bar {
+            height: 100%;
+            width: 0%;
+            background: #f44336;
+            transition: width 0.3s, background-color 0.3s;
+        }
+        .score-text {
+            font-size: 1.4rem;
+            font-weight: 800;
+            margin: 0 0 10px 0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .checklist-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            margin-bottom: 12px;
+            font-size: 0.92rem;
+            line-height: 1.4;
+        }
+        .checklist-item .material-icons {
+            font-size: 18px;
+            margin-top: 1px;
+        }
+        .checklist-item.pass {
+            color: #2e7d32;
+        }
+        .checklist-item.fail {
+            color: #c62828;
+        }
+        /* AI Suggester Button */
+        .ai-btn {
+            background: linear-gradient(135deg, #e07a5f 0%, #f2cc8f 100%);
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-weight: 700;
+            cursor: pointer;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            font-size: 1rem;
+            box-shadow: 0 4px 10px rgba(224, 122, 95, 0.2);
+            transition: all 0.2s;
+        }
+        .ai-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 14px rgba(224, 122, 95, 0.3);
+        }
+        .btn-submit {
+            background: #1976d2;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 1rem;
+            transition: background 0.2s;
+        }
+        .btn-submit:hover {
+            background: #115293;
+        }
+        /* Loader Overlay */
+        .loader-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255,255,255,0.8);
+            z-index: 9999;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #e07a5f;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .counter-badge {
+            float: right;
+            font-size: 0.8rem;
+            color: #777;
+            font-weight: normal;
+        }
+        .counter-badge.warn {
+            color: #c62828;
+            font-weight: bold;
+        }
+        .counter-badge.good {
+            color: #2e7d32;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Loading overlay for AI suggests -->
+    <div class="loader-overlay" id="ai-loader">
+        <div class="spinner"></div>
+        <div style="font-weight: 600; font-size: 1.1rem; color: #0d47a1;">VietLawBot AI đang tối ưu hóa SEO...</div>
+        <div style="color: #666; font-size: 0.9rem;">Gợi ý Slug, Mô tả meta và Từ khóa tốt nhất cho bài viết của bạn.</div>
+    </div>
+
+    <div class="form-header">
+        <h1>
+            <span class="material-icons" style="font-size: 28px;">edit_document</span>
+            {% if action == 'new' %}Viết bài viết mới chuẩn SEO{% else %}Chỉnh sửa bài viết chuẩn SEO{% endif %}
+        </h1>
+        <a href="{{ url_for('post_admin') }}" class="back-btn">
+            <span class="material-icons">arrow_back</span> Quay lại Quản lý bài viết
+        </a>
+    </div>
+
+    {% with messages = get_flashed_messages() %}
+        {% if messages %}
+            <div style="max-width: 1200px; margin: 0 auto 20px auto; padding: 0 20px;">
+                {% for message in messages %}
+                <div style="background:#ffebee; color:#c62828; padding:12px 18px; border-radius:8px; border-left:4px solid #c62828;">
+                    {{ message }}
+                </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+
+    <form method="post" id="post-form" class="workspace">
+        <!-- Cột trái: Soạn thảo nội dung -->
+        <div class="content-column">
+            <div class="card">
+                <div class="card-title">
+                    <span class="material-icons">article</span> Nội dung bài viết
+                </div>
+                
+                <div class="form-group">
+                    <label for="title">Tiêu đề bài viết <span class="counter-badge" id="title-counter">0 ký tự</span></label>
+                    <input type="text" name="title" id="title" required placeholder="Ví dụ: Quy định mới nhất về xử phạt xây dựng trái phép năm 2026" value="{{ post.title if post else '' }}">
+                </div>
+
+                <div class="form-group">
+                    <label for="slug">Đường dẫn thân thiện (URL Slug)</label>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="text" name="slug" id="slug" required placeholder="quy-dinh-moi-nhat-xuly-xay-dung-trai-phep" value="{{ post.slug if post else '' }}">
+                        <button type="button" onclick="generateSlugFromTitle()" style="padding: 0 14px; border-radius: 8px; border: 1.5px solid #1976d2; background: #e3f2fd; color:#1976d2; font-weight: 600; cursor: pointer; white-space: nowrap;">Tạo Slug</button>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Nội dung chi tiết</label>
+                    <div id="editor-container"></div>
+                    <!-- Hidden textarea to bind Quill content -->
+                    <textarea name="content" id="hidden-content" style="display: none;"></textarea>
+                </div>
+                
+                <div style="display: flex; gap: 16px; margin-top: 24px;">
+                    <div class="form-group" style="flex: 1;">
+                        <label for="thumbnail_url">Ảnh đại diện (Thumbnail URL)</label>
+                        <input type="text" name="thumbnail_url" id="thumbnail_url" placeholder="https://domain.com/image.jpg" value="{{ post.thumbnail_url if post else '' }}">
+                    </div>
+                    <div class="form-group" style="width: 150px;">
+                        <label for="status">Trạng thái</label>
+                        <select name="status" id="status">
+                            <option value="draft" {% if post and post.status == 'draft' %}selected{% endif %}>Bản nháp</option>
+                            <option value="published" {% if post and post.status == 'published' %}selected{% endif %}>Xuất bản</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div style="margin-top: 20px;">
+                    <button type="submit" class="btn-submit">
+                        <span class="material-icons">save</span> Lưu bài viết
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Cột phải: SEO Checklist, Google Preview, AI suggest -->
+        <div class="seo-column">
+            <!-- Xem trước Snippet Google -->
+            <div class="card">
+                <div class="card-title">
+                    <span class="material-icons">travel_explore</span> Xem trước kết quả Google
+                </div>
+                <div class="google-preview">
+                    <h3 class="preview-title" id="google-title">Tiêu đề bài viết hiển thị ở đây</h3>
+                    <div class="preview-url" id="google-url">https://vietlawbot.vn/news/posts/duong-dan</div>
+                    <p class="preview-desc" id="google-desc">Nhập mô tả SEO (Meta Description) bên dưới để xem trước đoạn trích dẫn hiển thị trên kết quả tìm kiếm của Google...</p>
+                </div>
+            </div>
+
+            <!-- Tối ưu hóa SEO & Trợ lý AI -->
+            <div class="card">
+                <div class="card-title">
+                    <span class="material-icons">psychology</span> Trợ lý AI & SEO Metadata
+                </div>
+                
+                <div class="form-group" style="margin-bottom: 24px;">
+                    <button type="button" class="ai-btn" onclick="suggestSEOFromAI()">
+                        <span class="material-icons">auto_awesome</span> Tối ưu SEO bằng AI (Gemini)
+                    </button>
+                </div>
+
+                <div class="form-group">
+                    <label for="meta_description">Mô tả SEO (Meta Description) <span class="counter-badge" id="meta-counter">0 ký tự</span></label>
+                    <textarea name="meta_description" id="meta_description" class="seo-input" placeholder="Tóm tắt ngắn bài viết khoảng 120-160 ký tự..." required>{{ post.meta_description if post else '' }}</textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="keywords">Từ khóa SEO chính (Focus Keywords)</label>
+                    <input type="text" name="keywords" id="keywords" placeholder="Ví dụ: phạt xây dựng, xây dựng trái phép" value="{{ post.keywords if post else '' }}">
+                    <small style="color: #666; font-size: 0.82rem; display:block; margin-top:4px;">Cách nhau bằng dấu phẩy (,), từ khóa đầu tiên là từ khóa chính.</small>
+                </div>
+            </div>
+
+            <!-- SEO Checklist & Live Score -->
+            <div class="card">
+                <div class="card-title">
+                    <span class="material-icons">checklist</span> Điểm SEO & Danh sách kiểm tra
+                </div>
+                
+                <div class="score-text">
+                    <span>Điểm SEO của bạn:</span>
+                    <span id="score-val" style="color: #f44336;">0/100</span>
+                </div>
+                <div class="score-bar-container">
+                    <div class="score-bar" id="score-bar"></div>
+                </div>
+
+                <div style="margin-top: 20px;">
+                    <div class="checklist-item fail" id="chk-title-len">
+                        <span class="material-icons">cancel</span>
+                        <span>Độ dài tiêu đề bài viết lý tưởng (50 - 60 ký tự).</span>
+                    </div>
+                    <div class="checklist-item fail" id="chk-meta-len">
+                        <span class="material-icons">cancel</span>
+                        <span>Độ dài mô tả Meta lý tưởng (120 - 160 ký tự).</span>
+                    </div>
+                    <div class="checklist-item fail" id="chk-kw-title">
+                        <span class="material-icons">cancel</span>
+                        <span>Từ khóa chính xuất hiện trong tiêu đề.</span>
+                    </div>
+                    <div class="checklist-item fail" id="chk-kw-slug">
+                        <span class="material-icons">cancel</span>
+                        <span>Từ khóa chính xuất hiện trong Slug (URL).</span>
+                    </div>
+                    <div class="checklist-item fail" id="chk-kw-meta">
+                        <span class="material-icons">cancel</span>
+                        <span>Từ khóa chính xuất hiện trong Mô tả Meta.</span>
+                    </div>
+                    <div class="checklist-item fail" id="chk-word-count">
+                        <span class="material-icons">cancel</span>
+                        <span>Độ dài nội dung bài viết tối thiểu 600 từ (<span id="current-word-count">0</span> từ).</span>
+                    </div>
+                    <div class="checklist-item fail" id="chk-kw-content">
+                        <span class="material-icons">cancel</span>
+                        <span>Từ khóa chính xuất hiện trong nội dung bài viết.</span>
+                    </div>
+                    <div class="checklist-item fail" id="chk-kw-density">
+                        <span class="material-icons">cancel</span>
+                        <span>Mật độ từ khóa chính đạt chuẩn 1% - 2.5% (Hiện tại: <span id="current-density">0</span>%).</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
+
+    <!-- Quill.js JS -->
+    <script src="https://cdn.jsdelivr.net/npm/quill@1.3.7/dist/quill.min.js"></script>
+
+    <script>
+        // Khởi tạo Quill Editor
+        var quill = new Quill('#editor-container', {
+            theme: 'snow',
+            modules: {
+                toolbar: [
+                    [{ 'header': [2, 3, false] }],
+                    ['bold', 'italic', 'underline', 'strike'],
+                    ['blockquote', 'code-block'],
+                    [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                    ['link', 'image'],
+                    ['clean']
+                ]
+            }
+        });
+
+        // Set content ban đầu nếu ở chế độ sửa bài
+        {% if post and post.content %}
+            quill.clipboard.dangerouslyPasteHTML({{ post.content | tojson }});
+        {% endif %}
+
+        // Đồng bộ dữ liệu Quill sang hidden textarea trước khi submit
+        var form = document.getElementById('post-form');
+        form.addEventListener('submit', function(e) {
+            var html = quill.root.innerHTML;
+            document.getElementById('hidden-content').value = html;
+        });
+
+        // Tự động tạo slug từ tiêu đề
+        function generateSlugFromTitle() {
+            var title = document.getElementById('title').value;
+            if(!title) return;
+            
+            var slug = title.toLowerCase();
+            
+            // Xóa dấu tiếng Việt
+            slug = slug.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+            // Thay thế đ thành d
+            slug = slug.replace(/đ/g, 'd');
+            // Xóa các ký tự đặc biệt
+            slug = slug.replace(/[^a-z0-9\s-]/g, '');
+            // Thay thế khoảng trắng thành dấu gạch ngang
+            slug = slug.replace(/[\s_]+/g, '-');
+            // Xóa gạch ngang liên tiếp
+            slug = slug.replace(/-+/g, '-');
+            // Xóa gạch ngang ở đầu và cuối
+            slug = slug.replace(/^-+|-+$/g, '');
+            
+            document.getElementById('slug').value = slug;
+            runSeoAnalysis();
+        }
+
+        // Lấy từ khóa chính từ input
+        function getPrimaryKeyword() {
+            var keywordsVal = document.getElementById('keywords').value.trim();
+            if(!keywordsVal) return "";
+            return keywordsVal.split(',')[0].trim();
+        }
+
+        // Phân tích SEO và cập nhật điểm số + checklist
+        function runSeoAnalysis() {
+            var title = document.getElementById('title').value;
+            var slug = document.getElementById('slug').value;
+            var metaDesc = document.getElementById('meta_description').value;
+            var primaryKeyword = getPrimaryKeyword();
+            
+            // Đọc nội dung thô từ editor để tính số từ
+            var contentText = quill.getText().trim();
+            var wordCount = contentText ? contentText.split(/\s+/).length : 0;
+            if(contentText === "") wordCount = 0;
+            
+            // 1. Cập nhật Google Snippet Preview
+            document.getElementById('google-title').textContent = title || "Tiêu đề bài viết hiển thị ở đây";
+            document.getElementById('google-url').textContent = "https://vietlawbot.vn/news/posts/" + (slug || "duong-dan");
+            document.getElementById('google-desc').textContent = metaDesc || "Nhập mô tả SEO (Meta Description) để xem trước...";
+            
+            // 2. Cập nhật độ dài ký tự
+            var titleCounter = document.getElementById('title-counter');
+            titleCounter.textContent = title.length + " ký tự";
+            if (title.length >= 50 && title.length <= 60) {
+                titleCounter.className = "counter-badge good";
+            } else {
+                titleCounter.className = "counter-badge warn";
+            }
+            
+            var metaCounter = document.getElementById('meta-counter');
+            metaCounter.textContent = metaDesc.length + " ký tự";
+            if (metaDesc.length >= 120 && metaDesc.length <= 160) {
+                metaCounter.className = "counter-badge good";
+            } else {
+                metaCounter.className = "counter-badge warn";
+            }
+
+            // 3. Tính điểm SEO dựa trên checklist
+            var score = 0;
+            
+            // Quy tắc 1: Chiều dài tiêu đề (50-60 ký tự)
+            var isTitleLenPass = title.length >= 50 && title.length <= 60;
+            updateChecklistItem('chk-title-len', isTitleLenPass);
+            if (isTitleLenPass) score += 15;
+            
+            // Quy tắc 2: Chiều dài mô tả meta (120-160 ký tự)
+            var isMetaLenPass = metaDesc.length >= 120 && metaDesc.length <= 160;
+            updateChecklistItem('chk-meta-len', isMetaLenPass);
+            if (isMetaLenPass) score += 15;
+            
+            // Quy tắc 3: Từ khóa chính có trong Tiêu đề
+            var isKwTitlePass = primaryKeyword && title.toLowerCase().includes(primaryKeyword.toLowerCase());
+            updateChecklistItem('chk-kw-title', isKwTitlePass);
+            if (isKwTitlePass) score += 15;
+            
+            // Quy tắc 4: Từ khóa chính có trong Slug (chuyển đổi sang dạng slug)
+            var kwSlugForm = primaryKeyword ? primaryKeyword.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/[^a-z0-9\s-]/g, '').replace(/[\s_]+/g, '-') : "";
+            var isKwSlugPass = kwSlugForm && slug.toLowerCase().includes(kwSlugForm);
+            updateChecklistItem('chk-kw-slug', isKwSlugPass);
+            if (isKwSlugPass) score += 15;
+            
+            // Quy tắc 5: Từ khóa chính có trong Mô tả meta
+            var isKwMetaPass = primaryKeyword && metaDesc.toLowerCase().includes(primaryKeyword.toLowerCase());
+            updateChecklistItem('chk-kw-meta', isKwMetaPass);
+            if (isKwMetaPass) score += 15;
+
+            // Quy tắc 6: Số từ tối thiểu (600 từ)
+            document.getElementById('current-word-count').textContent = wordCount;
+            var isWordCountPass = wordCount >= 600;
+            updateChecklistItem('chk-word-count', isWordCountPass);
+            if (isWordCountPass) score += 10;
+            
+            // Quy tắc 7: Từ khóa chính xuất hiện trong Nội dung bài viết
+            var isKwContentPass = primaryKeyword && contentText.toLowerCase().includes(primaryKeyword.toLowerCase());
+            updateChecklistItem('chk-kw-content', isKwContentPass);
+            if (isKwContentPass) score += 10;
+            
+            // Quy tắc 8: Mật độ từ khóa chính (1% - 2.5%)
+            var density = 0;
+            if (wordCount > 0 && primaryKeyword) {
+                // Đếm số lần xuất hiện của từ khóa
+                var regex = new RegExp(primaryKeyword.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'gi');
+                var matches = contentText.match(regex);
+                var occurrences = matches ? matches.length : 0;
+                // Mật độ phần trăm
+                density = parseFloat(((occurrences / wordCount) * 100).toFixed(2));
+            }
+            document.getElementById('current-density').textContent = density;
+            var isDensityPass = density >= 1.0 && density <= 2.5;
+            updateChecklistItem('chk-kw-density', isDensityPass);
+            if (isDensityPass) score += 5;
+            
+            // 4. Cập nhật thanh hiển thị Điểm SEO
+            var scoreValEl = document.getElementById('score-val');
+            var scoreBarEl = document.getElementById('score-bar');
+            
+            scoreValEl.textContent = score + "/100";
+            scoreBarEl.style.width = score + "%";
+            
+            if (score < 50) {
+                scoreBarEl.style.backgroundColor = "#f44336"; // đỏ
+                scoreValEl.style.color = "#f44336";
+            } else if (score < 80) {
+                scoreBarEl.style.backgroundColor = "#ff9800"; // cam
+                scoreValEl.style.color = "#ff9800";
+            } else {
+                scoreBarEl.style.backgroundColor = "#4caf50"; // xanh lá
+                scoreValEl.style.color = "#4caf50";
+            }
+        }
+
+        // Cập nhật trạng thái từng item checklist
+        function updateChecklistItem(id, pass) {
+            var el = document.getElementById(id);
+            var icon = el.querySelector('.material-icons');
+            if (pass) {
+                el.className = "checklist-item pass";
+                icon.textContent = "check_circle";
+            } else {
+                el.className = "checklist-item fail";
+                icon.textContent = "cancel";
+            }
+        }
+
+        // Lắng nghe sự thay đổi của các trường input để phân tích trực tiếp
+        document.getElementById('title').addEventListener('input', runSeoAnalysis);
+        document.getElementById('slug').addEventListener('input', runSeoAnalysis);
+        document.getElementById('meta_description').addEventListener('input', runSeoAnalysis);
+        document.getElementById('keywords').addEventListener('input', runSeoAnalysis);
+        quill.on('text-change', runSeoAnalysis);
+
+        // Gọi trợ lý AI đề xuất SEO bằng Gemini
+        function suggestSEOFromAI() {
+            var title = document.getElementById('title').value.trim();
+            var contentHtml = quill.root.innerHTML;
+            
+            if (!title) {
+                alert("Vui lòng điền Tiêu đề bài viết trước khi yêu cầu trợ lý AI tư vấn.");
+                return;
+            }
+            
+            var loader = document.getElementById('ai-loader');
+            loader.style.display = 'flex'; // Hiện loading overlay
+            
+            fetch("{{ url_for('api_seo_suggest') }}", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    title: title,
+                    content: contentHtml
+                })
+            })
+            .then(function(res) {
+                if(!res.ok) {
+                    throw new Error("Lỗi máy chủ khi lấy phản hồi từ AI");
+                }
+                return res.json();
+            })
+            .then(function(data) {
+                loader.style.display = 'none'; // Ẩn loading
+                
+                if (data.error) {
+                    alert("Có lỗi xảy ra: " + data.error);
+                    return;
+                }
+                
+                // Cập nhật các trường thông tin SEO
+                if(data.slug) document.getElementById('slug').value = data.slug;
+                if(data.meta_description) document.getElementById('meta_description').value = data.meta_description;
+                if(data.keywords) document.getElementById('keywords').value = data.keywords;
+                
+                if (data.warning) {
+                    alert("Cảnh báo AI: " + data.warning);
+                }
+                
+                // Phân tích lại SEO
+                runSeoAnalysis();
+            })
+            .catch(function(err) {
+                loader.style.display = 'none'; // Ẩn loading
+                alert("Không thể kết nối trợ lý AI: " + err.message);
+            });
+        }
+
+        // Chạy phân tích SEO khi load trang
+        window.addEventListener('load', runSeoAnalysis);
+    </script>
+</body>
+</html>

@@ -1,3 +1,6 @@
+# models_lite.py
+# Phiên bản models cho VietLawBot Lite
+
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -59,20 +62,3 @@ class User(UserMixin, db.Model):
         self.questions_asked += 1     # Tăng tổng số câu hỏi
         self.daily_questions += 1     # Tăng số câu hỏi trong ngày
         db.session.commit()
-
-class Post(db.Model):
-    """Mô hình Bài viết chuẩn SEO"""
-    id = db.Column(db.Integer, primary_key=True)
-    title = db.Column(db.String(200), nullable=False)
-    slug = db.Column(db.String(250), unique=True, nullable=False)  # URL thân thiện SEO
-    meta_description = db.Column(db.String(250), nullable=True)     # Mô tả tìm kiếm (120-160 ký tự)
-    keywords = db.Column(db.String(150), nullable=True)             # Từ khóa phân cách bằng dấu phẩy
-    content = db.Column(db.Text, nullable=False)                    # Nội dung bài viết (HTML từ Rich Editor)
-    thumbnail_url = db.Column(db.String(500), nullable=True)        # Ảnh đại diện bài viết
-    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
-    status = db.Column(db.String(20), default='draft')              # 'draft' hoặc 'published'
-    
-    # Liên kết với tác giả
-    author_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
-    author = db.relationship('User', backref=db.backref('posts', lazy=True))

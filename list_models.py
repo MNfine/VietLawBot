@@ -1,6 +1,25 @@
 # list_models.py
 
 import os
+import sys
+
+# Force UTF-8 output on Windows to prevent UnicodeEncodeError
+if sys.platform == "win32":
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
+# Load .env file nếu có
+try:
+    from dotenv import load_dotenv
+    # Thử load từ thư mục hiện tại hoặc lite/
+    if os.path.exists('.env'):
+        load_dotenv('.env')
+    elif os.path.exists('lite/.env'):
+        load_dotenv('lite/.env')
+except ImportError:
+    pass
+
 import google.generativeai as genai
 
 def list_available_models():

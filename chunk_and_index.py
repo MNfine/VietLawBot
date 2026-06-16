@@ -1,6 +1,14 @@
 # chunk_and_index.py
 
 import os
+import sys
+
+# Force UTF-8 output on Windows to prevent UnicodeEncodeError
+if sys.platform == "win32":
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
 # Tự động load token từ .env nếu có
 try:
     from dotenv import load_dotenv
@@ -173,7 +181,7 @@ def index_all_chunks(txt_folder: str):
 
     print(f"✅ Hoàn tất: đã index {chunk_counter} chunks vào Redis Stack.")
 
-def retrieve_similar_chunks(query: str, top_k: int = 3, threshold: float = 0.6) -> List[Dict[str, Any]]:
+def retrieve_similar_chunks(query: str, top_k: int = 3, threshold: float = 0.0) -> List[Dict[str, Any]]:
     """
     Tìm các chunk văn bản tương tự với câu query.
     Args:
@@ -186,7 +194,9 @@ def retrieve_similar_chunks(query: str, top_k: int = 3, threshold: float = 0.6) 
             - meta: Thông tin meta của chunk
             - score: Điểm similarity
     """
+    print(f"[DEBUG] retrieve_similar_chunks called: query='{query[:40]}...', top_k={top_k}, threshold={threshold}", flush=True)
     q_emb = get_embedding(query)
+    print(f"[DEBUG] Embedding done, len={len(q_emb)} bytes", flush=True)
 
     try:
         raw = r.execute_command(
@@ -196,11 +206,13 @@ def retrieve_similar_chunks(query: str, top_k: int = 3, threshold: float = 0.6) 
             "RETURN", 3, "text", "meta", "vector_score",
             "DIALECT", 2
         )
+        print(f"[DEBUG] FT.SEARCH raw len={len(raw) if raw else 0}, hits={raw[0] if raw else 'N/A'}", flush=True)
     except Exception as e:
-        print(f"Lỗi khi FT.SEARCH: {e}")
+        print(f"[DEBUG] ❌ FT.SEARCH error: {e}", flush=True)
         return []
 
     if not raw or len(raw) <= 1:
+        print(f"[DEBUG] ❌ raw is empty or has no results", flush=True)
         return []
 
     total_hits = int(raw[0])
@@ -225,18 +237,23 @@ def retrieve_similar_chunks(query: str, top_k: int = 3, threshold: float = 0.6) 
         except:
             meta = {"raw_meta": meta_str}
         try:
-            # Chuyển cosine similarity (-1 to 1) thành normalized score (0 to 1)
-            cosine_sim = float(props_dict.get("vector_score", 0.0))
-            score = (cosine_sim + 1) / 2  # Convert from [-1,1] to [0,1]
+            # Redis KNN trả về cosine DISTANCE [0,1] (0=giống hệt, 1=trái ngược)
+            # Chuyển sang cosine SIMILARITY: score = 1 - distance
+            cosine_dist = float(props_dict.get("vector_score", 1.0))
+            score = 1.0 - cosine_dist  # score=1.0 mà giống, score=0.0 là trái ngược
         except:
             score = 0.0
             
-        if score >= threshold:
-            source = meta.get("source", "Unknown")
-            dieu = meta.get("dieu", "")
-            print(f"[DEBUG] Chunk score: {score:.4f} | Source: {source}{' Điều ' + dieu if dieu else ''}")
+        source = meta.get("source", "Unknown")
+        dieu = meta.get("dieu", "")
+        passed = score >= threshold
+        flag = "✓ PASS" if passed else "✗ skip"
+        print(f"[DEBUG] {flag} | sim={score:.4f} dist={cosine_dist:.4f} | {source}{' Điều '+dieu if dieu else ''}", flush=True)
+        
+        if passed:
             results.append({"text": text, "meta": meta, "score": score})
             
+    print(f"[DEBUG] Threshold={threshold:.2f} | {len(results)}/{len(range(1, len(raw), 2))-1} chunks passed", flush=True)
     return results
 
 # --------------------------------------------

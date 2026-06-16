@@ -1,9 +1,13 @@
+# app_lite.py
+# Phiên bản nhẹ của VietLawBot - Không sử dụng Docker/Redis
+
 from flask import Flask, request, render_template, redirect, url_for, flash, session
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from flask_mail import Mail, Message
 from flask_dance.contrib.google import make_google_blueprint, google
 from sqlalchemy.exc import IntegrityError
 import os
+import sys
 import random
 import string
 from datetime import datetime, timedelta
@@ -12,16 +16,23 @@ from flask import send_from_directory
 import re
 import json
 
-# Import các hàm đã được định nghĩa trong retrieve_and_answer.py
-from retrieve_and_answer import answer_with_context, retrieve_similar_chunks, parse_mcq, gemini_answer
-from models import User, db, Post
+from dotenv import load_dotenv
+
+# ưu tiên .env trong thư mục lite/
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+
+# Thêm parent directory vào path để import plain_texts
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+# Import từ module lite
+from retrieve_and_answer_lite import answer_with_context, retrieve_similar_chunks, parse_mcq, preload_index
+from models_lite import User, db
 
 # Nếu cần OCR
 from PIL import Image
 import pytesseract
 
-# Nếu cần convert PDF sang ảnh (OCR), cài thư viện pdf2image và poppler-utils
-# pip install pdf2image
+# Nếu cần convert PDF sang ảnh (OCR)
 try:
     from pdf2image import convert_from_path
     PDF2IMAGE_AVAILABLE = True
@@ -31,13 +42,14 @@ except ImportError:
 # --------------------------------------------
 # 1. Thiết lập Flask và cấu hình upload ảnh/PDF
 # --------------------------------------------
-app = Flask(__name__)
+app = Flask(__name__, template_folder='templates')
 app.config['SECRET_KEY'] = os.urandom(24)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///vietlawbot.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///vietlawbot_lite.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # giới hạn 10MB
 app.config['UPLOAD_EXTENSIONS'] = ['.jpg', '.jpeg', '.png', '.pdf']
 app.config['UPLOAD_PATH'] = 'uploads'
+app.config['SHOW_VERIFICATION_CODE'] = os.getenv('SHOW_VERIFICATION_CODE', 'true').lower() in ('1', 'true', 'yes')
 
 # Email config
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
@@ -52,7 +64,7 @@ app.config['GOOGLE_OAUTH_CLIENT_SECRET'] = os.getenv('GOOGLE_OAUTH_CLIENT_SECRET
 
 mail = Mail(app)
 
-# Thêm dòng này để đăng ký app với SQLAlchemy
+# Đăng ký app với SQLAlchemy
 db.init_app(app)
 
 # Thiết lập blueprint cho Google OAuth
@@ -64,7 +76,7 @@ google_bp = make_google_blueprint(
 )
 app.register_blueprint(google_bp, url_prefix="/login")
 
-# Thêm đoạn này để khởi tạo Flask-Login
+# Khởi tạo Flask-Login
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
@@ -75,11 +87,14 @@ def load_user(user_id):
 
 os.makedirs(app.config['UPLOAD_PATH'], exist_ok=True)
 
-# Thêm filter để định dạng ngày trong Jinja2
+# Filter để định dạng ngày trong Jinja2
 @app.template_filter('datetimeformat')
 def datetimeformat_filter(value):
     import datetime
     return datetime.datetime.fromtimestamp(value).strftime('%d/%m/%Y %H:%M')
+
+# Đường dẫn tới plain_texts ở thư mục cha
+PLAIN_TEXTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "plain_texts")
 
 # --------------------------------------------
 # 2. Route chính: form hỏi + upload ảnh/PDF
@@ -277,7 +292,15 @@ def register():
         Trân trọng,
         Đội ngũ LawBot
         '''
-        mail.send(msg)
+        try:
+            mail.send(msg)
+        except Exception as ex:
+            print(f"[MAIL] Không gửi được email cho {email}: {ex}")
+            flash('Không gửi được email xác thực, vui lòng kiểm tra cấu hình mail hoặc dùng mã hiển thị bên dưới.')
+        finally:
+            if app.config['SHOW_VERIFICATION_CODE']:
+                print(f"[DEV] Verification code for {email}: {code}")
+                flash(f'Mã xác thực (dùng thử): {code}')
         
         flash('Vui lòng kiểm tra email để lấy mã xác thực')
         return redirect(url_for('verify_email', user_id=user.id))
@@ -374,7 +397,6 @@ def lawyer():
 # --------------------------------------------
 @app.route('/news')
 def news():
-    plain_texts_dir = os.path.join(os.getcwd(), "plain_texts")
     docs = []
 
     search_query = request.args.get('q', '').lower().strip()
@@ -399,21 +421,20 @@ def news():
         "thủ tướng chính phủ": r"thủ[- ]tướng|ttcp",
         "tòa án nhân dân tối cao": r"tòa[- ]án|tandtc",
         "quốc hội": r"quốc[- ]hội|qh"
-        # Thêm các pattern khác...
     }
     
-    # Đọc fields.meta (JSON) duy nhất cho toàn bộ plain_texts
-    fields_meta_path = os.path.join(plain_texts_dir, "fields.meta")
+    # Đọc fields.meta (JSON)
+    fields_meta_path = os.path.join(PLAIN_TEXTS_DIR, "fields.meta")
     if os.path.exists(fields_meta_path):
         with open(fields_meta_path, "r", encoding="utf-8") as f:
             fields_dict = json.load(f)
     else:
         fields_dict = {}
 
-    if os.path.isdir(plain_texts_dir):
-        for fname in sorted(os.listdir(plain_texts_dir), reverse=True):
+    if os.path.isdir(PLAIN_TEXTS_DIR):
+        for fname in sorted(os.listdir(PLAIN_TEXTS_DIR), reverse=True):
             if fname.lower().endswith(".txt"):
-                fpath = os.path.join(plain_texts_dir, fname)
+                fpath = os.path.join(PLAIN_TEXTS_DIR, fname)
                 name = fname.replace(".txt", "").lower()
                 should_include = True
 
@@ -459,7 +480,6 @@ def news():
 
                 # Lọc chính xác theo lĩnh vực nếu có selected_fields
                 if selected_fields:
-                    # Nếu không có field hoặc field không nằm trong selected_fields thì loại bỏ
                     if not field or field not in selected_fields:
                         should_include = False
                         continue
@@ -475,211 +495,35 @@ def news():
     # Sắp xếp theo ngày mới nhất
     docs.sort(key=lambda d: d["mtime"], reverse=True)
     
-    # Lấy các bài viết đã xuất bản (status='published')
-    posts = Post.query.filter_by(status='published').order_by(Post.created_at.desc()).all()
-    
     return render_template("news.html",
                          docs=docs,
                          search_query=search_query,
                          selected_fields=selected_fields,
                          selected_types=selected_doc_types,
-                         selected_agencies=selected_agencies,
-                         posts=posts)
-
-# --------------------------------------------
-# 8. Các route cho tính năng Bài viết chuẩn SEO
-# --------------------------------------------
-def is_admin():
-    """Kiểm tra xem người dùng hiện tại có phải là Admin không qua email"""
-    if not current_user.is_authenticated:
-        return False
-    email = current_user.email.strip().lower()
-    local_part = email.split('@')[0] if '@' in email else email
-    # Cho phép các email bắt đầu bằng 'admin' (vd: admin@gmail.com, admin.law@vietlawbot.vn, v.v.)
-    return local_part == 'admin' or local_part.startswith('admin')
-
-@app.context_processor
-def inject_admin_check():
-    """Truyền hàm is_admin vào tất cả các template Jinja2"""
-    return dict(is_admin=is_admin)
-
-@app.route('/news/posts/<slug>')
-def post_detail(slug):
-    post = Post.query.filter_by(slug=slug).first_or_404()
-    if post.status != 'published' and not is_admin():
-        flash("Bài viết chưa được xuất bản hoặc bạn không có quyền xem bản nháp.")
-        return redirect(url_for('news'))
-    return render_template("post_detail.html", post=post)
-
-@app.route('/news/admin')
-@login_required
-def post_admin():
-    if not is_admin():
-        flash("Chỉ tài khoản admin mới có quyền truy cập trang quản lý bài viết.")
-        return redirect(url_for('news'))
-    posts = Post.query.order_by(Post.created_at.desc()).all()
-    return render_template("post_admin.html", posts=posts)
-
-@app.route('/news/posts/new', methods=['GET', 'POST'])
-@login_required
-def post_new():
-    if not is_admin():
-        flash("Chỉ tài khoản admin mới được phép viết bài mới.")
-        return redirect(url_for('news'))
-        
-    if request.method == 'POST':
-        title = request.form.get('title', '').strip()
-        slug = request.form.get('slug', '').strip()
-        meta_description = request.form.get('meta_description', '').strip()
-        keywords = request.form.get('keywords', '').strip()
-        content = request.form.get('content', '').strip()
-        thumbnail_url = request.form.get('thumbnail_url', '').strip()
-        status = request.form.get('status', 'draft')
-        
-        if not title or not content:
-            flash("Tiêu đề và nội dung không được để trống.")
-            return render_template("post_form.html", action="new", post=None)
-            
-        if not slug:
-            import unicodedata
-            slug = unicodedata.normalize('NFKD', title).encode('ascii', 'ignore').decode('utf-8')
-            slug = re.sub(r'[^a-zA-Z0-9\s-]', '', slug).strip().lower()
-            slug = re.sub(r'[\s-]+', '-', slug)
-            
-        # Check uniqueness of slug
-        existing = Post.query.filter_by(slug=slug).first()
-        if existing:
-            import random
-            slug = f"{slug}-{random.randint(1000, 9999)}"
-            
-        post = Post(
-            title=title,
-            slug=slug,
-            meta_description=meta_description,
-            keywords=keywords,
-            content=content,
-            thumbnail_url=thumbnail_url,
-            status=status,
-            author_id=current_user.id
-        )
-        db.session.add(post)
-        db.session.commit()
-        flash("Bài viết đã được tạo thành công!")
-        return redirect(url_for('post_admin'))
-        
-    return render_template("post_form.html", action="new", post=None)
-
-@app.route('/news/posts/edit/<int:post_id>', methods=['GET', 'POST'])
-@login_required
-def post_edit(post_id):
-    if not is_admin():
-        flash("Chỉ tài khoản admin mới được phép chỉnh sửa bài viết.")
-        return redirect(url_for('news'))
-        
-    post = Post.query.get_or_404(post_id)
-    if request.method == 'POST':
-        post.title = request.form.get('title', '').strip()
-        post.slug = request.form.get('slug', '').strip()
-        post.meta_description = request.form.get('meta_description', '').strip()
-        post.keywords = request.form.get('keywords', '').strip()
-        post.content = request.form.get('content', '').strip()
-        post.thumbnail_url = request.form.get('thumbnail_url', '').strip()
-        post.status = request.form.get('status', 'draft')
-        
-        if not post.title or not post.content:
-            flash("Tiêu đề và nội dung không được để trống.")
-            return render_template("post_form.html", action="edit", post=post)
-            
-        # Check uniqueness of slug
-        existing = Post.query.filter_by(slug=post.slug).first()
-        if existing and existing.id != post.id:
-            import random
-            post.slug = f"{post.slug}-{random.randint(1000, 9999)}"
-            
-        db.session.commit()
-        flash("Bài viết đã được cập nhật thành công!")
-        return redirect(url_for('post_admin'))
-        
-    return render_template("post_form.html", action="edit", post=post)
-
-@app.route('/news/posts/delete/<int:post_id>', methods=['POST', 'GET'])
-@login_required
-def post_delete(post_id):
-    if not is_admin():
-        flash("Chỉ tài khoản admin mới được phép xóa bài viết.")
-        return redirect(url_for('news'))
-        
-    post = Post.query.get_or_404(post_id)
-    db.session.delete(post)
-    db.session.commit()
-    flash("Bài viết đã được xóa thành công!")
-    return redirect(url_for('post_admin'))
-
-@app.route('/news/posts/api/seo-suggest', methods=['POST'])
-@login_required
-def api_seo_suggest():
-    if not is_admin():
-        return {"error": "Chỉ tài khoản admin mới được phép sử dụng công cụ tối ưu SEO."}, 403
-        
-    data = request.get_json() or {}
-    title = data.get('title', '').strip()
-    content = data.get('content', '').strip()
-    
-    if not title:
-        return {"error": "Tiêu đề không được để trống."}, 400
-        
-    # strip HTML tags from content for Gemini analysis
-    clean_content = re.sub(r'<[^>]*>', ' ', content)
-    clean_content = re.sub(r'\s+', ' ', clean_content).strip()[:1000]
-    
-    prompt = f"""Bạn là một chuyên gia tối ưu hóa SEO chuyên nghiệp tại Việt Nam. 
-Dựa trên Tiêu đề và nội dung bài viết dưới đây, hãy sinh ra:
-1. Đường dẫn thân thiện SEO (slug): chỉ gồm chữ cái latin thường, số và dấu gạch ngang, không dấu tiếng Việt.
-2. Thẻ mô tả Meta (meta_description): Tối đa 160 ký tự, thu hút người đọc nhấp vào link, tóm tắt bài viết và chứa từ khóa chính, viết bằng tiếng Việt.
-3. 3 đến 5 từ khóa SEO chính (keywords): phân tách bằng dấu phẩy.
-
-Thông tin bài viết:
-Tiêu đề: {title}
-Nội dung: {clean_content}
-
-Bạn PHẢI trả về duy nhất 1 chuỗi JSON hợp lệ có định dạng sau, không có bất kỳ ký tự hay thẻ markdown nào ngoài JSON:
-{{
-  "slug": "duong-dan-bai-viet-seo",
-  "meta_description": "Mô tả ngắn hấp dẫn chuẩn SEO...",
-  "keywords": "từ khóa 1, từ khóa 2, từ khóa 3"
-}}"""
-
-    try:
-        response_text = gemini_answer(prompt)
-        response_text = re.sub(r'^```(?:json)?\s*', '', response_text)
-        response_text = re.sub(r'\s*```$', '', response_text).strip()
-        
-        result = json.loads(response_text)
-        return result
-    except Exception as e:
-        import unicodedata
-        fallback_slug = unicodedata.normalize('NFKD', title).encode('ascii', 'ignore').decode('utf-8')
-        fallback_slug = re.sub(r'[^a-zA-Z0-9\s-]', '', fallback_slug).strip().lower()
-        fallback_slug = re.sub(r'[\s-]+', '-', fallback_slug)
-        return {
-            "slug": fallback_slug,
-            "meta_description": title[:150],
-            "keywords": "pháp luật, luật sư, tư vấn",
-            "warning": f"Lỗi tạo gợi ý tự động: {str(e)}"
-        }
+                         selected_agencies=selected_agencies)
 
 @app.route('/plain_texts/<path:filename>')
 def download_plain_text(filename):
-    return send_from_directory("plain_texts", filename, as_attachment=True)
+    return send_from_directory(PLAIN_TEXTS_DIR, filename, as_attachment=True)
 
 # --------------------------------------------
-# 6. Chạy app trên cổng 5002
+# 8. Chạy app
 # --------------------------------------------
-# Tạo database tables khi khởi động (cần cho Gunicorn)
+# Tạo database tables khi khởi động
 with app.app_context():
     db.create_all()
 
+# Preload index khi khởi động (tùy chọn - có thể comment nếu muốn lazy load)
+# preload_index()
+
 if __name__ == '__main__':
-    # Chỉ dùng cho development, production dùng Gunicorn
-    debug_mode = os.getenv('FLASK_DEBUG', 'True').lower() not in ['false', '0', 'no']
-    app.run(host='0.0.0.0', port=5002, debug=debug_mode)
+    print("=" * 50)
+    print("VietLawBot Lite - Không sử dụng Docker/Redis")
+    print("=" * 50)
+    
+    # Preload index khi chạy trực tiếp
+    print("Đang khởi động và load văn bản pháp luật...")
+    preload_index()
+    
+    debug_mode = os.getenv('FLASK_DEBUG', 'False').lower() in ['true', '1', 'yes']
+    app.run(host='0.0.0.0', port=5003, debug=debug_mode)

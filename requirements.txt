@@ -1,4 +1,5 @@
 flask
+gunicorn
 pillow
 pytesseract
 pdf2image
@@ -12,6 +13,7 @@ pypdfium2
 pdfminer.six
 python-docx
 datasets
+pyarrow
 python-dotenv
 flask-sqlalchemy
 flask-login

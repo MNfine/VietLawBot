@@ -1,19 +1,14 @@
-# retrieve_and_answer.py
+# retrieve_and_answer_lite.py
+# Phiên bản nhẹ không sử dụng Docker/Redis
+# Đọc trực tiếp từ các file .txt và sử dụng sentence-transformers để tìm kiếm
 
 import os
-import sys
-
-# Force UTF-8 output on Windows to prevent UnicodeEncodeError
-if sys.platform == "win32":
-    import io
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
-
 import json
 import re
+from typing import Tuple, Optional, Dict, Any, List
+import numpy as np
 import time
 import random
-from typing import Tuple, Optional, Dict, Any
 
 # Load các biến môi trường
 try:
@@ -23,7 +18,7 @@ except ImportError:
     pass
 
 import google.generativeai as genai
-from chunk_and_index import retrieve_similar_chunks
+from sentence_transformers import SentenceTransformer
 
 # --------------------------------------------
 # CẤU HÌNH CHUNG
@@ -34,19 +29,163 @@ genai.configure(api_key=GEMINI_API_KEY)
 # Số chunk lấy về và ngưỡng similarity
 TOP_K = 5
 SIMILARITY_THRESHOLD = 0.60  # LaBSE cosine similarity thực: văn bản pháp lý tiếng Việt thường đạt 0.4-0.55
-SHOW_DEBUG = True  # Thêm flag để kiểm soát việc in debug info
+SHOW_DEBUG = True  # Lite version bật debug mặc định để dễ kiểm tra
+
+# Đường dẫn tới thư mục chứa văn bản pháp luật
+PLAIN_TEXTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "plain_texts")
+
+# Model embedding
+MODEL_NAME = "sentence-transformers/LaBSE"
+
+# Cache cho chunks và embeddings (load một lần khi khởi động)
+_chunks_cache = None
+_embeddings_cache = None
+_sbert_model = None
+
+def get_sbert_model():
+    """Lazy load sentence transformer model."""
+    global _sbert_model
+    if _sbert_model is None:
+        print("Đang load model embedding LaBSE...")
+        _sbert_model = SentenceTransformer(MODEL_NAME)
+        print("Đã load xong model embedding.")
+    return _sbert_model
+
+def chunk_text(text: str, chunk_size: int = 400, overlap: int = 50) -> List[str]:
+    """
+    Chia một đoạn text dài thành các chunk nhỏ hơn.
+    """
+    tokens = text.split()
+    chunks = []
+    start = 0
+    while start < len(tokens):
+        end = min(start + chunk_size, len(tokens))
+        chunk = tokens[start:end]
+        chunks.append(" ".join(chunk))
+        if end == len(tokens):
+            break
+        start += chunk_size - overlap
+    return chunks
+
+def load_all_chunks() -> Tuple[List[Dict[str, Any]], np.ndarray]:
+    """
+    Load tất cả chunks từ thư mục plain_texts và tạo embeddings.
+    Cache để không phải load lại mỗi lần query.
+    """
+    global _chunks_cache, _embeddings_cache
+    
+    if _chunks_cache is not None and _embeddings_cache is not None:
+        return _chunks_cache, _embeddings_cache
+    
+    print("Đang load và index văn bản pháp luật...")
+    
+    all_chunks = []
+    
+    if not os.path.isdir(PLAIN_TEXTS_DIR):
+        print(f"Thư mục '{PLAIN_TEXTS_DIR}' không tồn tại!")
+        return [], np.array([])
+    
+    for filename in sorted(os.listdir(PLAIN_TEXTS_DIR)):
+        if not filename.lower().endswith(".txt"):
+            continue
+        if filename == "fields.meta":
+            continue
+            
+        txt_path = os.path.join(PLAIN_TEXTS_DIR, filename)
+        try:
+            with open(txt_path, "r", encoding="utf-8") as f:
+                full_text = f.read()
+        except Exception as e:
+            print(f"Lỗi đọc file {filename}: {e}")
+            continue
+            
+        chunks = chunk_text(full_text, chunk_size=400, overlap=50)
+        
+        for i, chunk in enumerate(chunks):
+            meta = {
+                "source": filename.replace(".txt", ""),
+                "chunk_id": i
+            }
+            all_chunks.append({
+                "text": chunk,
+                "meta": meta
+            })
+    
+    if not all_chunks:
+        print("Không tìm thấy chunks nào!")
+        return [], np.array([])
+    
+    print(f"Đã load {len(all_chunks)} chunks từ {PLAIN_TEXTS_DIR}")
+    
+    # Tạo embeddings cho tất cả chunks
+    sbert = get_sbert_model()
+    texts = [c["text"] for c in all_chunks]
+    
+    print("Đang tạo embeddings cho tất cả chunks...")
+    embeddings = sbert.encode(
+        texts,
+        batch_size=32,
+        convert_to_numpy=True,
+        normalize_embeddings=True,
+        show_progress_bar=True
+    )
+    
+    _chunks_cache = all_chunks
+    _embeddings_cache = embeddings
+    
+    print(f"Hoàn tất indexing {len(all_chunks)} chunks.")
+    return all_chunks, embeddings
+
+def retrieve_similar_chunks(query: str, top_k: int = 3, threshold: float = 0.0) -> List[Dict[str, Any]]:
+    """
+    Tìm các chunk văn bản tương tự với câu query.
+    Sử dụng cosine similarity trực tiếp trong memory.
+    """
+    chunks, embeddings = load_all_chunks()
+    
+    if not chunks or embeddings.size == 0:
+        return []
+    
+    # Tạo embedding cho query
+    sbert = get_sbert_model()
+    query_emb = sbert.encode(
+        query,
+        convert_to_numpy=True,
+        normalize_embeddings=True
+    )
+    
+    # Tính cosine similarity
+    similarities = np.dot(embeddings, query_emb)
+    
+    # Lấy top-k indices
+    top_indices = np.argsort(similarities)[::-1][:top_k]
+    
+    results = []
+    for idx in top_indices:
+        score = float(similarities[idx])
+        if score >= threshold:
+            chunk = chunks[idx]
+            results.append({
+                "text": chunk["text"],
+                "meta": chunk["meta"],
+                "score": score
+            })
+            if SHOW_DEBUG:
+                source = chunk["meta"].get("source", "Unknown")
+                print(f"[DEBUG] Chunk score: {score:.4f} | Source: {source}", flush=True)
+    
+    return results
 
 def gemini_answer(prompt: str) -> str:
-    """Gọi Gemini để sinh câu trả lời (có retry/backoff và sử dụng các model dự phòng)."""
+    """Gọi Gemini để sinh câu trả lời (có retry/backoff và thông báo lỗi rõ)."""
     if not GEMINI_API_KEY:
         return "Lỗi: GOOGLE_API_KEY đang rỗng. Hãy set biến môi trường GOOGLE_API_KEY trước khi gọi Gemini."
 
-    # Danh sách model theo thứ tự ưu tiên
+    # Thử danh sách model theo thứ tự (tùy account, có model gọi được/không)
     model_candidates = [
         "models/gemini-2.5-flash",
         "models/gemini-2.0-flash",
-        "models/gemini-1.5-flash",
-        "models/gemini-flash-latest"
+        "models/gemini-2.0-flash-lite"
     ]
 
     last_err = None
@@ -55,39 +194,36 @@ def gemini_answer(prompt: str) -> str:
         try:
             gm = genai.GenerativeModel(model_name)
 
-            # Retry tối đa 3 lần cho mỗi model khi gặp lỗi 429 rate limit
+            # Retry tối đa 3 lần cho mỗi model khi gặp 429 kiểu rate-limit (không phải quota=0)
             for attempt in range(3):
                 try:
                     resp = gm.generate_content(prompt)
+                    # resp.text đôi khi None nếu bị safety/empty
                     text = getattr(resp, "text", None)
                     return (text or "").strip() or "Gemini trả về rỗng (không có text)."
                 except Exception as e:
                     msg = str(e)
                     last_err = e
 
-                    # Nếu bị rate-limited hoặc hết quota tạm thời, thực hiện backoff
+                    # Nếu là 429 thì backoff (nhưng nếu quota=0 thì vẫn fail)
                     if "429" in msg or "RESOURCE_EXHAUSTED" in msg or "quota" in msg.lower():
+                        # exponential backoff + jitter
                         sleep_s = min(2 ** attempt, 8) + random.random()
                         time.sleep(sleep_s)
                         continue
                     else:
-                        # Các lỗi khác thì break luôn để thử model khác
+                        # lỗi khác thì break luôn để thử model khác
                         break
+
         except Exception as e:
             last_err = e
             continue
 
-    return f"Đã xảy ra lỗi khi gọi Gemini API: {last_err}"
+    return f"Lỗi khi gọi Gemini API (đã thử nhiều model): {last_err}"
 
 def parse_mcq(query: str) -> Tuple[str, Optional[Dict[str, str]]]:
     """
     Tách câu hỏi trắc nghiệm thành phần đề bài và các phương án.
-    Args:
-        query: Câu hỏi trắc nghiệm đầy đủ
-    Returns:
-        tuple: (stem, options) trong đó
-            - stem: phần đề bài
-            - options: dict các phương án hoặc None nếu không phải MCQ
     """
     pattern = (
         r"(.*?)(?:\n\s*(?:A\.|A\))\s*(?P<A>.+?))"
@@ -152,10 +288,6 @@ def answer_with_context(query: str) -> str:
     """
     Trả lời câu hỏi dựa trên văn bản luật có liên quan.
     Hỗ trợ cả câu hỏi trắc nghiệm và tự luận.
-    Args:
-        query: Câu hỏi cần trả lời
-    Returns:
-        str: Câu trả lời từ Gemini
     """
     # Parse câu hỏi
     stem, options = parse_mcq(query)
@@ -174,11 +306,11 @@ def answer_with_context(query: str) -> str:
     if not has_relevant_chunks:
         # Fallback sang Gemini ngay nếu không có chunk nào đủ liên quan
         general_prompt = (
-            "Bạn là luật sư tư vấn pháp luật Việt Nam. Hãy trả lời câu hỏi sau một cách chính xác "
-            "và dễ hiểu. Nếu không chắc chắn, hãy khuyến nghị người dùng tham khảo ý kiến luật sư.\n\n"
+            "Bạn là luật sư tư vấn pháp luật Việt Nam. Hãy trả lời câu hỏi sau một cách chính xác, chuyên nghiệp "
+            "và dễ hiểu. Trả lời ngắn gọn, súc tích, đúng trọng tâm. Nếu không chắc chắn, hãy khuyến nghị người dùng tham khảo ý kiến luật sư.\n\n"
             f"Câu hỏi: {query}\n\n"
         )
-        return "[Gemini tổng quát] " + gemini_answer(general_prompt)
+        return "[Tổng quát] " + gemini_answer(general_prompt)
 
     # Lọc chunks theo score và ưu tiên theo loại luật
     selected = []
@@ -190,34 +322,34 @@ def answer_with_context(query: str) -> str:
         is_civil = "luật-91-2015" in source
         is_criminal = "luật-100-2015" in source
         
-        # Nếu query liên quan đến luật dân sự -> ưu tiên chunks từ BLDS
         if is_civil_law and is_civil:
             selected.append(c)
-        # Nếu query liên quan đến luật hình sự -> ưu tiên chunks từ BLHS
         elif is_criminal_law and is_criminal:
             selected.append(c)
-        # Nếu query không nêu rõ loại luật -> lấy tất cả chunks có score cao
         elif not is_civil_law and not is_criminal_law:
             selected.append(c)
 
     # Tạo context từ các chunk được chọn
-    # Chú ý: KHÔNG cho Gemini thấy tên file nguồn, tránh Gemini nhận xét về chúng
     context = ""
     for idx, c in enumerate(selected):
+        meta = c["meta"]
+        source = meta.get("source", "Unknown")
+        dieu = meta.get("dieu", "")
+        khoan = meta.get("khoan", "")
+        header = f"[Đoạn {idx+1} – {source}"
+        if dieu:
+            header += f", Điều {dieu}"
+        if khoan:
+            header += f", Khoản {khoan}"
+        header += "]\n"
+        
         chunk_text = c["text"]
         chunk_text = chunk_text.replace("\n", " ").strip()
         chunk_text = re.sub(r"\s+", " ", chunk_text)
         chunk_text = re.sub(r"\s*\*+\s*", " ", chunk_text)
-        context += f"[Trích dẫn {idx+1}]\n{chunk_text.strip()}\n\n"
+        context += header + chunk_text.strip() + "\n\n"
 
     # Tạo prompt phù hợp với loại câu hỏi
-    context_instruction = (
-        "Lưu ý quan trọng:\n"
-        "- Chỉ sử dụng các trích dẫn trên nếu chúng thực sự có liên quan đến câu hỏi.\n"
-        "- TUYỆT ĐỐI KHÔNG nhận xét về nguồn trích dẫn là tài liệu gì, chỉ trích dẫn nội dung.\n"
-        "- Nếu các trích dẫn KHÔNG liên quan đến câu hỏi, hãy bỏ qua chúng và trả lời dựa trên kiến thức pháp luật tổng quát.\n"
-        "- Không nhắc lại tên file, mã số, hay bất kỳ định danh kỹ thuật nào trong câu trả lời.\n"
-    )
     if options:
         opts_text = ""
         for key, val in options.items():
@@ -225,23 +357,23 @@ def answer_with_context(query: str) -> str:
         prompt = (
             "Bạn là luật sư chuyên về pháp luật Việt Nam với nhiều năm kinh nghiệm. "
             "Hãy trả lời câu hỏi dựa trên các đoạn văn bản luật được cung cấp dưới đây. "
-            "Nếu thông tin không đầy đủ, hãy trả lời dựa trên kiến thức pháp luật tổng quát.\n\n"
+            "Trả lời ngắn gọn, súc tích, đúng trọng tâm. Nếu thông tin không đầy đủ, hãy trả lời dựa trên kiến thức pháp luật tổng quát.\n\n"
             f"Câu hỏi (MCQ): {stem}\n"
             "Phương án:\n" + opts_text + "\n"
-            f"Văn bản luật tham khảo:\n{context}\n"
-            + context_instruction +
-            "Hãy chọn 1 trong 4 phương án (A/B/C/D). "
-            "Nếu có thể, giải thích ngắn gọn lý do chọn."
+            f"Văn bản luật liên quan:\n{context}\n"
+            "Hãy chọn 1 trong 4 phương án (A/B/C/D) và giải thích ngắn gọn lý do chọn. "
+            "Nếu không tìm thấy thông tin phù hợp trong văn bản luật, "
+            "hãy trả lời dựa trên hiểu biết chung về pháp luật Việt Nam."
         )
     else:
         prompt = (
             "Bạn là luật sư chuyên về pháp luật Việt Nam với nhiều năm kinh nghiệm. "
             "Hãy trả lời câu hỏi dựa trên các đoạn văn bản luật được cung cấp dưới đây. "
-            "Nếu thông tin không đầy đủ, hãy trả lời dựa trên kiến thức pháp luật tổng quát.\n\n"
+            "Trả lời ngắn gọn, súc tích, đúng trọng tâm. Nếu thông tin không đầy đủ, hãy trả lời dựa trên kiến thức pháp luật tổng quát.\n\n"
             f"Câu hỏi: {query}\n\n"
-            f"Văn bản luật tham khảo:\n{context}\n"
-            + context_instruction +
-            "Trả lời ngắn gọn, rõ ràng, trích dẫn điều luật nếu có."
+            f"Văn bản luật liên quan:\n{context}\n"
+            "Nêu kết luận rõ ràng, trích dẫn điều luật nếu có. Nếu không tìm thấy thông tin phù hợp trong văn bản luật, "
+            "hãy trả lời dựa trên hiểu biết chung về pháp luật Việt Nam."
         )
 
     # Gọi Gemini và format câu trả lời
@@ -269,7 +401,7 @@ def answer_with_context(query: str) -> str:
     )
     
     # Quyết định prefix dựa trên việc có sử dụng thông tin pháp luật không
-    prefix = "[LawBot (RAG)] " if uses_legal_context else "[Gemini tổng quát] "
+    prefix = "[LawBot (RAG)] " if uses_legal_context else "[Tổng quát] "
     
     # Thêm disclaimer
     disclaimer = (
@@ -281,6 +413,13 @@ def answer_with_context(query: str) -> str:
     )
     
     return prefix + answer + disclaimer
+
+# --------------------------------------------
+# Preload chunks khi import module (tùy chọn)
+# --------------------------------------------
+def preload_index():
+    """Gọi hàm này để preload index khi khởi động app."""
+    load_all_chunks()
 
 # --------------------------------------------
 # PHẦN TEST KHI CHẠY TRỰC TIẾP
